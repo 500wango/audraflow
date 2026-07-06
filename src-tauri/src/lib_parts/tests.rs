@@ -42,6 +42,10 @@ mod tests {
         assert_eq!(normalize_runtime_component_id("whisperCli"), Some("whisper"));
         assert_eq!(normalize_runtime_component_id("whisper-cli"), Some("whisper"));
         assert_eq!(normalize_runtime_component_id("ffprobe"), Some("ffmpeg"));
+        assert_eq!(
+            normalize_runtime_component_id("vcRedist"),
+            Some("vc-redist")
+        );
         assert_eq!(normalize_runtime_component_id("funasrCli"), Some("funasr"));
         assert_eq!(
             normalize_runtime_component_id("llama-funasr-cli"),
@@ -49,6 +53,71 @@ mod tests {
         );
         assert_eq!(normalize_runtime_component_id("ytDlp"), Some("yt-dlp"));
         assert_eq!(normalize_runtime_component_id("unknown"), None);
+    }
+
+    #[test]
+    fn funasr_runtime_component_uses_official_release_when_supported() {
+        let download = funasr_official_download();
+        if cfg!(any(
+            all(windows, target_arch = "x86_64"),
+            all(target_os = "linux", target_arch = "x86_64"),
+            all(target_os = "linux", target_arch = "aarch64"),
+            all(target_os = "macos", target_arch = "aarch64")
+        )) {
+            let url = download.expect("Fun-ASR download should be available").url;
+            assert!(url.contains("github.com/modelscope/FunASR/releases/download/"));
+            assert!(url.contains(FUNASR_LLAMA_CPP_RELEASE_TAG));
+            assert!(!url.contains("500wango/audraflow"));
+        } else {
+            assert!(download.is_none());
+        }
+    }
+
+    #[test]
+    fn tar_gz_runtime_archive_extracts_required_file_by_basename() {
+        let root = std::env::temp_dir().join(format!(
+            "audraflow-runtime-tar-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let archive_path = root.join("funasr.tar.gz");
+        let destination = root.join("bin");
+        std::fs::create_dir_all(&destination).unwrap();
+
+        let archive_file = std::fs::File::create(&archive_path).unwrap();
+        let encoder =
+            flate2::write::GzEncoder::new(archive_file, flate2::Compression::default());
+        let mut builder = tar::Builder::new(encoder);
+        let payload = b"#!/bin/sh\n";
+        let mut header = tar::Header::new_gnu();
+        header.set_path("funasr-llamacpp/llama-funasr-cli").unwrap();
+        header.set_size(payload.len() as u64);
+        header.set_mode(0o755);
+        header.set_cksum();
+        builder.append(&header, &payload[..]).unwrap();
+        let encoder = builder.into_inner().unwrap();
+        encoder.finish().unwrap();
+
+        extract_required_files_from_archive(&archive_path, &destination, &["llama-funasr-cli"])
+            .unwrap();
+
+        assert_eq!(
+            std::fs::read(destination.join("llama-funasr-cli")).unwrap(),
+            payload
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn funasr_usage_output_is_accepted_as_probe_success() {
+        let usage = "usage: /usr/bin/audraflow-llama-funasr-cli --enc enc.gguf -m llm.gguf -a audio.wav [-n npred] [--json]";
+        assert!(text_looks_like_funasr_usage(usage));
+    }
+
+    #[test]
+    fn funasr_glibc_loader_error_is_not_probe_success() {
+        let error = "/lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.38' not found";
+        assert!(!text_looks_like_funasr_usage(error));
     }
 
     #[test]

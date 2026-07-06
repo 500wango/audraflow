@@ -61,6 +61,33 @@ fn probe_default_whisper_model(app_handle: &tauri::AppHandle) -> RuntimeDependen
     }
 }
 
+#[cfg(windows)]
+fn probe_vc_redist() -> RuntimeDependencyDto {
+    let id = "vcRedist";
+    let missing = vc_redist_missing_files();
+    if missing.is_empty() {
+        RuntimeDependencyDto {
+            id: id.into(),
+            status: "ready".into(),
+            kind: "required".into(),
+            path: vc_redist_install_dir().map(|path| path.to_string_lossy().into_owned()),
+            version: None,
+            detail: Some("Microsoft Visual C++ Runtime x64 is available.".into()),
+            repairable: runtime_dependency_repairable(id),
+        }
+    } else {
+        RuntimeDependencyDto {
+            id: id.into(),
+            status: "missing".into(),
+            kind: "required".into(),
+            path: vc_redist_install_dir().map(|path| path.to_string_lossy().into_owned()),
+            version: None,
+            detail: Some(format!("Missing DLL(s): {}", missing.join(", "))),
+            repairable: runtime_dependency_repairable(id),
+        }
+    }
+}
+
 async fn probe_runtime_command(
     id: &str,
     kind: &str,
@@ -119,6 +146,94 @@ async fn probe_runtime_command(
             repairable: runtime_dependency_repairable(id),
         },
     }
+}
+
+async fn probe_funasr_cli() -> RuntimeDependencyDto {
+    let id = "funasrCli";
+    let program = funasr_cli_command();
+    let display_path = command_display_path(&program);
+    let mut command = tokio::process::Command::new(&program);
+    command.arg("--help");
+
+    match tokio::time::timeout(Duration::from_secs(5), command.output()).await {
+        Ok(Ok(output)) if output.status.success() || output_looks_like_funasr_usage(&output) => {
+            RuntimeDependencyDto {
+                id: id.into(),
+                status: "ready".into(),
+                kind: "experimental".into(),
+                path: Some(display_path),
+                version: first_output_line(&output.stdout)
+                    .or_else(|| first_output_line(&output.stderr)),
+                detail: None,
+                repairable: runtime_dependency_repairable(id),
+            }
+        }
+        Ok(Ok(output)) => RuntimeDependencyDto {
+            id: id.into(),
+            status: "warning".into(),
+            kind: "experimental".into(),
+            path: Some(display_path),
+            version: first_output_line(&output.stdout)
+                .or_else(|| first_output_line(&output.stderr)),
+            detail: Some(format!(
+                "Probe exited with {}. {}",
+                output.status,
+                short_output(&output.stderr)
+                    .or_else(|| short_output(&output.stdout))
+                    .unwrap_or_else(|| "No output.".into())
+            )),
+            repairable: runtime_dependency_repairable(id),
+        },
+        Ok(Err(error)) => RuntimeDependencyDto {
+            id: id.into(),
+            status: "missing".into(),
+            kind: "experimental".into(),
+            path: None,
+            version: None,
+            detail: Some(error.to_string()),
+            repairable: runtime_dependency_repairable(id),
+        },
+        Err(_) => RuntimeDependencyDto {
+            id: id.into(),
+            status: "warning".into(),
+            kind: "experimental".into(),
+            path: Some(display_path),
+            version: None,
+            detail: Some("Probe timed out after 5s.".into()),
+            repairable: runtime_dependency_repairable(id),
+        },
+    }
+}
+
+async fn funasr_cli_probe_succeeds(program: &Path) -> bool {
+    let Ok(result) = tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio::process::Command::new(program).arg("--help").output(),
+    )
+    .await
+    else {
+        return false;
+    };
+    let Ok(output) = result else {
+        return false;
+    };
+    output.status.success() || output_looks_like_funasr_usage(&output)
+}
+
+fn output_looks_like_funasr_usage(output: &std::process::Output) -> bool {
+    let text = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    text_looks_like_funasr_usage(&text)
+}
+
+fn text_looks_like_funasr_usage(text: &str) -> bool {
+    let normalized = text.to_ascii_lowercase();
+    normalized.contains("llama-funasr-cli")
+        && normalized.contains("--enc")
+        && normalized.contains("-a audio")
 }
 
 async fn probe_sensevoice_python() -> RuntimeDependencyDto {
@@ -220,9 +335,35 @@ async fn repair_runtime_dependency(
     let normalized = id.trim();
     let message = match normalized {
         "defaultWhisperModel" => repair_default_whisper_model(&app_handle).await?,
-        "whisperCli" => install_runtime_component_by_id(&app_handle, "whisper").await?,
+        "vcRedist" => install_runtime_component_by_id(&app_handle, "vc-redist").await?,
+        "whisperCli" => {
+            let mut messages = Vec::new();
+            if let Some(message) = repair_vc_redist_if_missing(&app_handle).await? {
+                messages.push(message);
+            }
+            messages.push(install_runtime_component_by_id(&app_handle, "whisper").await?);
+            messages.join(" ")
+        }
         "ffmpeg" | "ffprobe" => install_runtime_component_by_id(&app_handle, "ffmpeg").await?,
-        "funasrCli" => install_runtime_component_by_id(&app_handle, "funasr").await?,
+        "funasrCli" => {
+            let vc_redist_message = repair_vc_redist_if_missing(&app_handle).await?;
+            let command = funasr_cli_command();
+            if funasr_cli_probe_succeeds(&command).await {
+                let ready_message = format!("Fun-ASR CLI is already usable: {}", command.display());
+                if let Some(message) = vc_redist_message {
+                    format!("{message} {ready_message}")
+                } else {
+                    ready_message
+                }
+            } else {
+                let install_message = install_runtime_component_by_id(&app_handle, "funasr").await?;
+                if let Some(message) = vc_redist_message {
+                    format!("{message} {install_message}")
+                } else {
+                    install_message
+                }
+            }
+        }
         "ytDlp" => install_runtime_component_by_id(&app_handle, "yt-dlp").await?,
         "sensevoicePython" => {
             repair_python_packages(
@@ -252,6 +393,16 @@ async fn repair_runtime_dependency(
         message,
         health: runtime_health(&app_handle).await,
     })
+}
+
+async fn repair_vc_redist_if_missing(app_handle: &tauri::AppHandle) -> Result<Option<String>, String> {
+    if vc_redist_missing_files().is_empty() {
+        Ok(None)
+    } else {
+        install_runtime_component_by_id(app_handle, "vc-redist")
+            .await
+            .map(Some)
+    }
 }
 
 async fn repair_default_whisper_model(app_handle: &tauri::AppHandle) -> Result<String, String> {

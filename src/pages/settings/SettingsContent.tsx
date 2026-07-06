@@ -348,7 +348,8 @@ export function SettingsContent({
                 const progress = runtimeComponentProgress?.id === component.id
                   ? runtimeComponentProgress
                   : null;
-                const canDelete = component.status === 'ready' || component.installedSizeBytes > 0;
+                const canDelete = component.id !== 'vc-redist' &&
+                  (component.status === 'ready' || component.installedSizeBytes > 0);
 
                 return (
                   <div key={component.id} className="runtime-component-row">

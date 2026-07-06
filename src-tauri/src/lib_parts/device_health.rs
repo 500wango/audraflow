@@ -97,17 +97,12 @@ async fn runtime_health(app_handle: &tauri::AppHandle) -> RuntimeHealthDto {
         )
         .await,
         probe_demucs().await,
-        probe_runtime_command(
-            "funasrCli",
-            "experimental",
-            funasr_cli_command(),
-            &["--help"],
-            None,
-            5,
-        )
-        .await,
+        probe_funasr_cli().await,
         probe_funasr_models(app_handle),
     ];
+
+    #[cfg(windows)]
+    items.push(probe_vc_redist());
 
     items.sort_by_key(|item| runtime_dependency_sort_key(&item.id));
 
@@ -131,14 +126,15 @@ async fn runtime_health(app_handle: &tauri::AppHandle) -> RuntimeHealthDto {
 fn runtime_dependency_sort_key(id: &str) -> u8 {
     match id {
         "defaultWhisperModel" => 0,
-        "whisperCli" => 1,
-        "ffmpeg" => 2,
-        "ffprobe" => 3,
-        "sensevoicePython" => 4,
-        "ytDlp" => 5,
-        "demucs" => 6,
-        "funasrCli" => 7,
-        "funasrModels" => 8,
+        "vcRedist" => 1,
+        "whisperCli" => 2,
+        "ffmpeg" => 3,
+        "ffprobe" => 4,
+        "sensevoicePython" => 5,
+        "ytDlp" => 6,
+        "demucs" => 7,
+        "funasrCli" => 8,
+        "funasrModels" => 9,
         _ => u8::MAX,
     }
 }
@@ -147,6 +143,7 @@ fn runtime_dependency_repairable(id: &str) -> bool {
     matches!(
         id,
         "defaultWhisperModel"
+            | "vcRedist"
             | "whisperCli"
             | "ffmpeg"
             | "ffprobe"

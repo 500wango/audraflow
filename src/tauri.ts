@@ -108,6 +108,13 @@ function friendlyErrorMessage(message: string, t: Translate): string {
   if (normalized.includes('no asr model is selected')) {
     return withDetail('error.noModelSelected');
   }
+  if (normalized.includes('vcruntime140') ||
+      normalized.includes('msvcp140') ||
+      normalized.includes('0xc0000135') ||
+      normalized.includes('visual c++ runtime') ||
+      normalized.includes('vc++ runtime')) {
+    return withDetail('error.vcRedistMissing');
+  }
   if (normalized.includes('whisper cli') || normalized.includes('whisper-cli')) {
     return withDetail('error.whisperCliMissing');
   }

@@ -92,10 +92,9 @@ fn preflight_transcription_dependencies(
         ),
         "sensevoice" => ensure_sensevoice_python_available(),
         "funasr" => {
-            ensure_runtime_command_available(
+            ensure_funasr_cli_startable(
                 funasr_cli_command(),
-                "Fun-ASR CLI",
-                "Fun-ASR transcription requires llama-funasr-cli. Install it or set AUDRAFLOW_FUNASR_CLI.",
+                "Fun-ASR transcription requires a runnable llama-funasr-cli. Install the Fun-ASR CLI runtime component, use the Linux package with the bundled CLI, or set AUDRAFLOW_FUNASR_CLI.",
             )?;
             resolve_funasr_model_paths(app_handle).map_err(|error| {
                 format!(
@@ -106,6 +105,21 @@ fn preflight_transcription_dependencies(
         }
         _ => Ok(()),
     }
+}
+
+fn ensure_funasr_cli_startable(command: PathBuf, message: &str) -> Result<(), String> {
+    let args = vec!["--help".into()];
+    let output = run_runtime_probe_with_timeout(&command, &args, Duration::from_secs(8))
+        .map_err(|error| format!("{message} Detail: {error}"))?;
+    if output.status.success() || output_looks_like_funasr_usage(&output) {
+        return Ok(());
+    }
+    Err(format!(
+        "{message} Detail: {}",
+        short_output(&output.stderr)
+            .or_else(|| short_output(&output.stdout))
+            .unwrap_or_else(|| format!("Probe exited with {}.", output.status))
+    ))
 }
 
 fn preflight_requested_transcription_dependencies(
