@@ -7,6 +7,7 @@
       "binaries/llama-funasr-cli",
       "binaries/ffmpeg",
       "binaries/ffprobe",
+      "binaries/yt-dlp",
       "binaries/libwhisper.so.1",
       "binaries/libggml.so.0",
       "binaries/libggml-base.so.0",

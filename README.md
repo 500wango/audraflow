@@ -15,7 +15,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 ## Desktop Builds
 
-The Tauri build packages the React UI plus the two required local sidecars:
+The Tauri build packages the React UI, the two required local sidecars, bundled runtime tools, and a default Whisper base model for first-run offline transcription.
 
 - `audraflow-orchestrator`
 - `audraflow-asr-runtime`
@@ -25,9 +25,12 @@ Linux packages also include the local runtime tools needed for transcription and
 - `whisper-cli`
 - `ffmpeg`
 - `ffprobe`
+- `yt-dlp`
 - whisper.cpp shared libraries required by `whisper-cli`
 
-Before bundling, `npm run stage:sidecars` builds the Rust sidecars in release mode and copies required external tools to `src-tauri/binaries` using Tauri's target-triple naming convention.
+Windows and macOS packages include the same command-line tools without the Linux shared libraries.
+
+Before bundling, `npm run prepare:runtime-assets` fetches the bundled Whisper base model and platform `yt-dlp` binary, then `npm run stage:sidecars` builds the Rust sidecars in release mode and copies required external tools to `src-tauri/binaries` using Tauri's target-triple naming convention.
 
 Build installers for the current platform:
 
@@ -68,7 +71,7 @@ For cross-target staging, set `AUDRAFLOW_TARGET_TRIPLE` or `CARGO_BUILD_TARGET` 
 
 ## Local ASR Engines
 
-AudraFlow defaults to Auto engine selection for new transcription jobs. Auto uses SenseVoice for ordinary speech. In Music / lyrics mode it uses the Whisper model selected in Settings with long-context chunking. If no Whisper model is selected, it falls back to `small` for balanced music mode or `large-v3-turbo` / `large` for Music / lyrics mode with Extreme accuracy. Extreme lyrics mode also merges original-audio and Demucs-vocals candidates when possible. Whisper is slower on CPU for some files, but it gives better line-level timestamps and better lyric results than SenseVoice on music-heavy audio.
+AudraFlow defaults to Auto engine selection for new transcription jobs. Release packages include a bundled Whisper base model, so Auto uses local Whisper by default and works without Python or manual model setup. SenseVoice remains available as an explicit engine when its Python dependencies are installed. In Music / lyrics mode, Auto uses the selected or preferred Whisper model with long-context chunking. Extreme lyrics mode also merges original-audio and Demucs-vocals candidates when possible.
 
 The Import page also has an audio language selector:
 
@@ -144,7 +147,7 @@ The Whisper runtime and orchestrator auto-discover `whisper-cli` from:
 4. `external\whisper.cpp\build\bin\whisper-cli.exe` on Windows
 5. `PATH`
 
-Linux packages include bundled `ffmpeg`, `ffprobe`, and `whisper-cli` for local files. Platform page URLs such as YouTube-style links require `yt-dlp` in `PATH`, a bundled `yt-dlp` next to the app, or explicit `AUDRAFLOW_YT_DLP_BIN`.
+Release packages include bundled `ffmpeg`, `ffprobe`, `whisper-cli`, and `yt-dlp` for local files and platform page URLs such as YouTube-style links. You can still override them with `AUDRAFLOW_FFMPEG_BIN`, `AUDRAFLOW_FFPROBE_BIN`, `AUDRAFLOW_WHISPER_CLI`, or `AUDRAFLOW_YT_DLP_BIN`.
 
 ## Music / Lyrics Mode
 

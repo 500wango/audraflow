@@ -54,6 +54,14 @@ const linuxToolSources = [
     ],
   },
   {
+    bundleName: 'yt-dlp',
+    sources: [
+      join(workspaceRoot, 'release', 'linux-portable', 'AudraFlow', 'bin', 'yt-dlp'),
+      '/usr/local/bin/yt-dlp',
+      '/usr/bin/yt-dlp',
+    ],
+  },
+  {
     bundleName: 'libwhisper.so.1',
     sources: [
       join(workspaceRoot, 'release', 'linux-portable', 'AudraFlow', 'bin', 'libwhisper.so.1'),
@@ -102,6 +110,12 @@ const windowsToolSources = [
       join(workspaceRoot, 'release', 'windows-portable', 'AudraFlow', 'bin', 'ffprobe.exe'),
     ],
   },
+  {
+    bundleName: 'yt-dlp',
+    sources: [
+      join(workspaceRoot, 'release', 'windows-portable', 'AudraFlow', 'bin', 'yt-dlp.exe'),
+    ],
+  },
 ];
 const macosToolSources = [
   {
@@ -128,6 +142,14 @@ const macosToolSources = [
       join(workspaceRoot, 'release', 'macos-portable', 'AudraFlow', 'bin', 'ffprobe'),
       '/opt/homebrew/bin/ffprobe',
       '/usr/local/bin/ffprobe',
+    ],
+  },
+  {
+    bundleName: 'yt-dlp',
+    sources: [
+      join(workspaceRoot, 'release', 'macos-portable', 'AudraFlow', 'bin', 'yt-dlp'),
+      '/opt/homebrew/bin/yt-dlp',
+      '/usr/local/bin/yt-dlp',
     ],
   },
 ];

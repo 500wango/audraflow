@@ -5,7 +5,8 @@
       "binaries/audraflow-asr-runtime",
       "binaries/whisper-cli",
       "binaries/ffmpeg",
-      "binaries/ffprobe"
+      "binaries/ffprobe",
+      "binaries/yt-dlp"
     ]
   }
 }

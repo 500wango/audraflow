@@ -27,6 +27,13 @@ const MAX_SKIP_START_SECONDS: f64 = 12.0 * 60.0 * 60.0;
 const DEFAULT_URL_PREVIEW_SECONDS: f64 = 120.0;
 const MAX_URL_PREVIEW_SECONDS: f64 = 300.0;
 const URL_PREVIEW_TIMEOUT_SECS: u64 = 240;
+const WHISPER_CPP_MODEL_COMMIT: &str = "5359861c739e955e79d9a303bcbc70fb988958b1";
+const WHISPER_CPP_MODEL_BASE_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve";
+const BUNDLED_DEFAULT_MODEL_RESOURCE: &str = "default-models/ggml-base.bin";
+const DEFAULT_WHISPER_MODEL_NAME: &str = "base";
+const DEFAULT_WHISPER_MODEL_SIZE_BYTES: u64 = 147_951_465;
+const DEFAULT_WHISPER_MODEL_SHA256: &str =
+    "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe";
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -361,6 +368,7 @@ struct ModelInfoDto {
     path: String,
     installed_at_ms: i64,
     selected: bool,
+    bundled: bool,
 }
 
 #[derive(Serialize)]
@@ -1019,6 +1027,119 @@ fn model_manager(
     Ok(manager)
 }
 
+fn whisper_cpp_model_version() -> String {
+    format!("whisper.cpp-{WHISPER_CPP_MODEL_COMMIT}")
+}
+
+fn bundled_default_model_info() -> audraflow_model_manager::ModelInfo {
+    audraflow_model_manager::ModelInfo {
+        name: DEFAULT_WHISPER_MODEL_NAME.into(),
+        version: whisper_cpp_model_version(),
+        language: "auto".into(),
+        size_bytes: DEFAULT_WHISPER_MODEL_SIZE_BYTES,
+        sha256: DEFAULT_WHISPER_MODEL_SHA256.into(),
+        download_url: "bundled".into(),
+        model_type: audraflow_model_manager::ModelType::WhisperCpp,
+    }
+}
+
+fn is_bundled_default_model_info(info: &audraflow_model_manager::ModelInfo) -> bool {
+    info.name == DEFAULT_WHISPER_MODEL_NAME && info.version == whisper_cpp_model_version()
+}
+
+fn ensure_bundled_default_model(
+    app_handle: &tauri::AppHandle,
+    manager: &audraflow_model_manager::ModelManager,
+) -> Result<Option<audraflow_model_manager::InstalledModel>, String> {
+    let Some(source) = find_bundled_default_model(app_handle) else {
+        return Ok(None);
+    };
+
+    let info = bundled_default_model_info();
+    if let Some(installed) = manager
+        .list_installed_models()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .find(|model| is_bundled_default_model_info(&model.info) && model.path.is_file())
+    {
+        if manager
+            .selected_model()
+            .map_err(|e| e.to_string())?
+            .is_none()
+        {
+            manager
+                .select_model(&installed.info.name, &installed.info.version)
+                .map_err(|e| e.to_string())?;
+        }
+        return Ok(Some(installed));
+    }
+
+    let destination = manager.model_path(&info);
+    if let Some(parent) = destination.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let tmp_path = destination.with_extension("bin.tmp");
+    let _ = std::fs::remove_file(&tmp_path);
+    std::fs::copy(&source, &tmp_path).map_err(|e| {
+        format!(
+            "Failed to copy bundled default model from {}: {e}",
+            source.display()
+        )
+    })?;
+    let _ = std::fs::remove_file(&destination);
+    std::fs::rename(&tmp_path, &destination)
+        .map_err(|e| format!("Failed to install bundled default model: {e}"))?;
+
+    let installed = manager
+        .register_installed_model(&info)
+        .map_err(|e| format!("Bundled default model failed validation: {e}"))?;
+    if manager
+        .selected_model()
+        .map_err(|e| e.to_string())?
+        .is_none()
+    {
+        manager
+            .select_model(&info.name, &info.version)
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(Some(installed))
+}
+
+fn find_bundled_default_model(app_handle: &tauri::AppHandle) -> Option<PathBuf> {
+    if let Some(path) = command_env_override("AUDRAFLOW_DEFAULT_MODEL_BIN") {
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+
+    if let Ok(resource_dir) = app_handle.path().resource_dir() {
+        for candidate in [
+            resource_dir.join(BUNDLED_DEFAULT_MODEL_RESOURCE),
+            resource_dir
+                .join("resources")
+                .join(BUNDLED_DEFAULT_MODEL_RESOURCE),
+        ] {
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+
+    runtime_search_roots()
+        .into_iter()
+        .flat_map(|root| {
+            [
+                root.join(BUNDLED_DEFAULT_MODEL_RESOURCE),
+                root.join("resources").join(BUNDLED_DEFAULT_MODEL_RESOURCE),
+                root.join("release")
+                    .join("default-models")
+                    .join("ggml-base.bin"),
+            ]
+        })
+        .find(|path| path.is_file())
+}
+
 fn installed_model_to_dto(
     model: audraflow_model_manager::InstalledModel,
     selected: Option<&audraflow_model_manager::InstalledModel>,
@@ -1027,6 +1148,7 @@ fn installed_model_to_dto(
         selected.info.name == model.info.name && selected.info.version == model.info.version
     });
     ModelInfoDto {
+        bundled: is_bundled_default_model_info(&model.info),
         name: model.info.name,
         version: model.info.version,
         language: model.info.language,
@@ -1040,6 +1162,7 @@ fn installed_model_to_dto(
 
 fn model_settings(app_handle: &tauri::AppHandle) -> Result<ModelSettingsDto, String> {
     let manager = model_manager(app_handle)?;
+    ensure_bundled_default_model(app_handle, &manager)?;
     let selected = manager.selected_model().map_err(|e| e.to_string())?;
     let installed_models = manager
         .list_installed_models()
@@ -1061,9 +1184,8 @@ fn model_settings(app_handle: &tauri::AppHandle) -> Result<ModelSettingsDto, Str
 fn builtin_model_catalog(
     app_handle: &tauri::AppHandle,
 ) -> Result<Vec<ModelCatalogEntryDto>, String> {
-    const COMMIT: &str = "5359861c739e955e79d9a303bcbc70fb988958b1";
-    const BASE_URL: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve";
     let manager = model_manager(app_handle)?;
+    ensure_bundled_default_model(app_handle, &manager)?;
     let installed = manager.list_installed_models().map_err(|e| e.to_string())?;
     let selected = manager.selected_model().map_err(|e| e.to_string())?;
 
@@ -1077,8 +1199,8 @@ fn builtin_model_catalog(
         ),
         (
             "base",
-            147_951_465_u64,
-            "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
+            DEFAULT_WHISPER_MODEL_SIZE_BYTES,
+            DEFAULT_WHISPER_MODEL_SHA256,
             "Balanced multilingual local transcription.",
             true,
         ),
@@ -1101,7 +1223,7 @@ fn builtin_model_catalog(
     Ok(catalog
         .into_iter()
         .map(|(name, size_bytes, sha256, description, recommended)| {
-            let version = format!("whisper.cpp-{COMMIT}");
+            let version = whisper_cpp_model_version();
             let is_installed = installed
                 .iter()
                 .any(|model| model.info.name == name && model.info.version == version);
@@ -1114,7 +1236,9 @@ fn builtin_model_catalog(
                 language: "auto".into(),
                 size_bytes,
                 sha256: sha256.into(),
-                download_url: format!("{BASE_URL}/{COMMIT}/ggml-{name}.bin"),
+                download_url: format!(
+                    "{WHISPER_CPP_MODEL_BASE_URL}/{WHISPER_CPP_MODEL_COMMIT}/ggml-{name}.bin"
+                ),
                 description: description.into(),
                 recommended,
                 installed: is_installed,
@@ -1186,12 +1310,16 @@ fn normalize_asr_engine(asr_engine: Option<&str>) -> String {
     }
 }
 
-fn resolve_asr_engine(requested_engine: &str, audio_mode: &str, has_whisper_model: bool) -> String {
+fn resolve_asr_engine(
+    requested_engine: &str,
+    _audio_mode: &str,
+    has_whisper_model: bool,
+) -> String {
     match requested_engine {
         "whisper" => "whisper".into(),
         "sensevoice" => "sensevoice".into(),
         "funasr" => "funasr".into(),
-        _ if audio_mode == "music" && has_whisper_model => "whisper".into(),
+        _ if has_whisper_model => "whisper".into(),
         _ => "sensevoice".into(),
     }
 }
@@ -1697,7 +1825,7 @@ async fn probe_sensevoice_python() -> RuntimeDependencyDto {
         return RuntimeDependencyDto {
             id: "sensevoicePython".into(),
             status: "missing".into(),
-            kind: "recommended".into(),
+            kind: "optional".into(),
             path: None,
             version: None,
             detail: Some("Python was not found.".into()),
@@ -1712,7 +1840,7 @@ async fn probe_sensevoice_python() -> RuntimeDependencyDto {
 
     probe_runtime_command(
         "sensevoicePython",
-        "recommended",
+        "optional",
         invocation.program,
         &arg_refs,
         Some(invocation.display),
@@ -1799,7 +1927,7 @@ fn preflight_url_import_dependencies(url: &str, skip_start_seconds: f64) -> Resu
         ensure_runtime_command_available(
             yt_dlp_command(),
             "yt-dlp",
-            "This looks like a platform link. Install yt-dlp or set AUDRAFLOW_YT_DLP_BIN before importing it.",
+            "This looks like a platform link. Reinstall AudraFlow or set AUDRAFLOW_YT_DLP_BIN before importing it.",
         )?;
     }
 
@@ -1853,12 +1981,10 @@ fn preflight_requested_transcription_dependencies(
 ) -> Result<(), String> {
     let requested_asr_engine = normalize_asr_engine(asr_engine);
     let audio_mode = normalize_audio_mode(audio_mode);
-    let selected_model = model_manager(app_handle)?
-        .selected_model()
-        .map_err(|e| e.to_string())?;
-    let installed_models = model_manager(app_handle)?
-        .list_installed_models()
-        .map_err(|e| e.to_string())?;
+    let manager = model_manager(app_handle)?;
+    ensure_bundled_default_model(app_handle, &manager)?;
+    let selected_model = manager.selected_model().map_err(|e| e.to_string())?;
+    let installed_models = manager.list_installed_models().map_err(|e| e.to_string())?;
     let has_whisper_model = preferred_lyrics_whisper_model(
         &installed_models,
         selected_model.as_ref(),
@@ -2584,6 +2710,12 @@ fn yt_dlp_command() -> PathBuf {
         return path;
     }
 
+    if let Some(path) =
+        find_bundled_command("yt-dlp").or_else(|| find_dev_or_portable_tool(yt_dlp_binary_name()))
+    {
+        return path;
+    }
+
     let winget_path = std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
         .map(|path| {
@@ -2596,10 +2728,15 @@ fn yt_dlp_command() -> PathBuf {
 
     match winget_path {
         Some(path) if path.exists() => path,
-        _ => find_bundled_command("yt-dlp")
-            .or_else(|| find_dev_or_portable_tool("yt-dlp"))
-            .or_else(|| find_system_command("yt-dlp"))
-            .unwrap_or_else(|| PathBuf::from("yt-dlp")),
+        _ => find_system_command("yt-dlp").unwrap_or_else(|| PathBuf::from("yt-dlp")),
+    }
+}
+
+fn yt_dlp_binary_name() -> &'static str {
+    if cfg!(windows) {
+        "yt-dlp.exe"
+    } else {
+        "yt-dlp"
     }
 }
 
@@ -3319,7 +3456,7 @@ async fn download_platform_media(
         .spawn()
         .map_err(|e| {
             format!(
-                "yt-dlp is required for platform links but was not found: {e}. Install yt-dlp or set AUDRAFLOW_YT_DLP_BIN to its executable path."
+                "yt-dlp is required for platform links but was not found: {e}. Reinstall AudraFlow or set AUDRAFLOW_YT_DLP_BIN to its executable path."
             )
         })?;
 
@@ -3716,12 +3853,10 @@ fn create_job_for_local_file(
     };
     let requested_asr_engine = normalize_asr_engine(asr_engine.as_deref());
     let audio_mode = normalize_audio_mode(audio_mode.as_deref());
-    let selected_model = model_manager(app_handle)?
-        .selected_model()
-        .map_err(|e| e.to_string())?;
-    let installed_models = model_manager(app_handle)?
-        .list_installed_models()
-        .map_err(|e| e.to_string())?;
+    let manager = model_manager(app_handle)?;
+    ensure_bundled_default_model(app_handle, &manager)?;
+    let selected_model = manager.selected_model().map_err(|e| e.to_string())?;
+    let installed_models = manager.list_installed_models().map_err(|e| e.to_string())?;
     let has_whisper_model = preferred_lyrics_whisper_model(
         &installed_models,
         selected_model.as_ref(),
@@ -5681,10 +5816,11 @@ mod tests {
     }
 
     #[test]
-    fn resolve_asr_engine_prefers_whisper_for_music_when_available() {
+    fn resolve_asr_engine_prefers_whisper_when_available() {
         assert_eq!(resolve_asr_engine("auto", "music", true), "whisper");
         assert_eq!(resolve_asr_engine("auto", "music", false), "sensevoice");
-        assert_eq!(resolve_asr_engine("auto", "speech", true), "sensevoice");
+        assert_eq!(resolve_asr_engine("auto", "speech", true), "whisper");
+        assert_eq!(resolve_asr_engine("auto", "speech", false), "sensevoice");
         assert_eq!(
             resolve_asr_engine("sensevoice", "music", true),
             "sensevoice"

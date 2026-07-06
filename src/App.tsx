@@ -333,6 +333,7 @@ interface ModelInfo {
   path: string;
   installedAtMs: number;
   selected: boolean;
+  bundled: boolean;
 }
 
 interface ModelCatalogEntry {
@@ -815,12 +816,13 @@ function buildEffectiveTranscriptionPlan(
     };
   }
 
-  if (audioMode === 'music' && lyricsModel) {
+  const autoWhisperModel = audioMode === 'music' ? lyricsModel : selectedModel ?? lyricsModel;
+  if (autoWhisperModel) {
     return {
       engine: 'whisper',
-      model: lyricsModel,
+      model: autoWhisperModel,
       ready: true,
-      reasonKey: 'model.reasonAutoMusicWhisper',
+      reasonKey: audioMode === 'music' ? 'model.reasonAutoMusicWhisper' : 'model.reasonAutoSpeech',
     };
   }
 
@@ -828,7 +830,7 @@ function buildEffectiveTranscriptionPlan(
     engine: 'sensevoice',
     model: null,
     ready: true,
-    reasonKey: audioMode === 'music' ? 'model.reasonAutoMusicSenseVoice' : 'model.reasonAutoSpeech',
+    reasonKey: 'model.reasonAutoSenseVoiceFallback',
   };
 }
 
@@ -4466,6 +4468,7 @@ function SettingsPage({
               <div key={`${model.name}:${model.version}`} className="model-row">
                 <div>
                   <strong>{model.name} v{model.version}</strong>
+                  {model.bundled ? <span className="runtime-kind-badge">{t('model.bundled')}</span> : null}
                   <p className="setting-meta">
                     {model.language} · {formatFileSize(model.sizeBytes)} · {model.sha256.slice(0, 12)}
                   </p>
@@ -4483,12 +4486,12 @@ function SettingsPage({
                   </button>
                   <button
                     className="btn-secondary danger-button"
-                    disabled={modelAction !== null}
+                    disabled={modelAction !== null || model.bundled}
                     onClick={() => {
                       void handleDeleteModel(model);
                     }}
                   >
-                    {modelAction === `delete:${model.name}:${model.version}` ? t('model.deleting') : t('model.delete')}
+                    {model.bundled ? t('model.bundled') : modelAction === `delete:${model.name}:${model.version}` ? t('model.deleting') : t('model.delete')}
                   </button>
                 </div>
               </div>

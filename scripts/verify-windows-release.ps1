@@ -86,7 +86,8 @@ function Test-AudraFlowAppLayout {
     'audraflow-asr-runtime.exe',
     'bin\whisper-cli.exe',
     'bin\ffmpeg.exe',
-    'bin\ffprobe.exe'
+    'bin\ffprobe.exe',
+    'bin\yt-dlp.exe'
   )
 
   foreach ($relativePath in $required) {
@@ -112,6 +113,7 @@ function Test-AudraFlowAppLayout {
   Invoke-Checked -FilePath (Join-Path $resolved 'bin\ffmpeg.exe') -Arguments @('-version') -WorkingDirectory $resolved
   Invoke-Checked -FilePath (Join-Path $resolved 'bin\ffprobe.exe') -Arguments @('-version') -WorkingDirectory $resolved
   Invoke-Checked -FilePath (Join-Path $resolved 'bin\whisper-cli.exe') -Arguments @('--help') -WorkingDirectory $resolved -AllowedExitCodes @(0, 1)
+  Invoke-Checked -FilePath (Join-Path $resolved 'bin\yt-dlp.exe') -Arguments @('--version') -WorkingDirectory $resolved
 
   return $resolved
 }

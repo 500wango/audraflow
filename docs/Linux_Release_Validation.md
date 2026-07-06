@@ -6,8 +6,8 @@ Run this checklist on a Linux x64 desktop before handing AudraFlow to testers.
 
 - Ubuntu/Debian-compatible system for `.deb`, Fedora/RHEL-compatible system for `.rpm`, or any supported desktop distribution for AppImage.
 - GTK 3 and WebKitGTK 4.1 runtime libraries available on the target desktop.
-- A local Whisper model for Whisper workflows, or SenseVoice Python dependencies for the default speech workflow.
-- Optional `yt-dlp` for YouTube, Bilibili, and other platform links.
+- The bundled Whisper base model prepared under `release/default-models/ggml-base.bin`.
+- Bundled `yt-dlp` for YouTube, Bilibili, and other platform links.
 - Optional `demucs` and `torchcodec` for vocal separation in Music / lyrics mode.
 
 ## Build
@@ -61,8 +61,8 @@ If `apt` prints a sandbox warning about `_apt` permissions while installing a lo
 After launch, open Settings and verify Runtime Health:
 
 - `Whisper CLI`, `FFmpeg`, and `FFprobe` are ready for local Whisper and media decoding.
-- `SenseVoice Python packages` are ready if the default SenseVoice speech engine will be used.
-- `yt-dlp` is ready if platform links will be imported.
+- `SenseVoice Python packages` are ready if the optional SenseVoice engine will be used.
+- Bundled `yt-dlp` is ready if platform links will be imported.
 - `Demucs` is ready only if vocal separation will be used.
 - `Fun-ASR CLI` and `Fun-ASR GGUF models` are only required for the experimental Fun-ASR engine.
 
@@ -96,8 +96,6 @@ And so my fellow Americans ask not what your country can do for you
 Platform links fail with `yt-dlp` missing:
 
 ```bash
-python3 -m pip install --user -U yt-dlp
-# or set:
 AUDRAFLOW_YT_DLP_BIN=/path/to/yt-dlp
 ```
 
@@ -122,10 +120,11 @@ Before marking the Linux build releasable:
 - Launch from the desktop menu or installed executable.
 - Complete the first-run telemetry choice with both choices tested on fresh profiles.
 - Switch the UI language between English and Chinese.
-- Import or download a Whisper model and confirm Settings shows it selected.
+- Confirm the bundled `base` model is present and selected on first launch.
+- Import or download an additional Whisper model and confirm Settings shows it selected.
 - Import one local short English file and one local short Chinese file.
 - Import one direct media URL.
-- Import one platform URL with `yt-dlp` installed.
+- Import one platform URL using the bundled `yt-dlp`.
 - Export TXT, Markdown, SRT, VTT, JSON, and DOCX to a writable folder.
 - Restart the app and confirm jobs, model selection, glossary entries, telemetry choice, and license state persist.
 - Uninstall and confirm application binaries are removed.

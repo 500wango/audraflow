@@ -43,12 +43,13 @@ The manifest records artifact names, sizes, SHA256 hashes, version, generation t
 Before marking a build as releasable:
 
 - Install from a fresh profile and complete first-run telemetry choice.
-- Import or download a model.
+- Confirm the bundled `base` model is present and selected on first launch.
+- Import or download an additional model.
 - Open Settings and confirm Runtime Health has no required blockers for the tested workflow.
 - Transcribe one short English file.
 - Transcribe one short Chinese file.
 - Import one direct media URL.
-- Import one platform URL with `yt-dlp` installed.
+- Import one platform URL using the bundled `yt-dlp`.
 - Export TXT, Markdown, SRT, VTT, JSON, and DOCX.
 - Restart the app and confirm jobs, glossary, model selection, telemetry choice, and license state persist.
 - Uninstall and confirm application binaries are removed.

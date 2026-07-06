@@ -9,8 +9,8 @@ Run this checklist on a real Windows x64 machine before handing AudraFlow to tes
 - Rust stable with the MSVC toolchain.
 - Visual Studio Build Tools with the C++ desktop workload.
 - PowerShell 5.1+.
-- A local Whisper model, preferably `external\whisper.cpp\models\ggml-tiny.bin`.
 - Bundled Windows runtime tools in `release\windows-portable\AudraFlow\bin`.
+- The bundled default Whisper base model prepared under `release\default-models\ggml-base.bin`.
 
 ## Build
 
@@ -59,7 +59,8 @@ Install the NSIS or MSI package and verify:
 - AudraFlow launches from Start Menu and from the installed executable.
 - The telemetry consent dialog responds to both choices.
 - The language switch changes between English and Chinese.
-- Model import or model download succeeds.
+- The bundled `base` model appears in Settings and is selected on a fresh profile.
+- Model import or model download succeeds for an additional model.
 - A short English audio file transcribes successfully.
 - A short Chinese audio file transcribes successfully.
 - Search finds transcript text.
