@@ -1,0 +1,209 @@
+@media (max-width: 760px) {
+  .app-body {
+    grid-template-columns: 1fr;
+  }
+
+  .app-sidebar {
+    display: none;
+  }
+
+  .app-header {
+    grid-template-columns: 72px minmax(76px, 1fr);
+    height: auto;
+    min-height: 58px;
+    padding: 10px 12px;
+  }
+
+  .app-title {
+    align-self: center;
+  }
+
+  .app-nav {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .app-nav-mobile {
+    display: flex;
+  }
+
+  .app-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .app-nav button {
+    flex: 1 0 auto;
+    white-space: nowrap;
+  }
+
+  .app-main {
+    height: 100%;
+    padding: 18px 14px;
+  }
+
+  .app-footer {
+    display: none;
+  }
+
+  .drop-zone {
+    min-height: 0;
+    padding: 42px 22px;
+  }
+
+  .empty-state {
+    min-height: 420px;
+  }
+
+  .empty-state-actions,
+  .settings-section-nav {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .model-readiness {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .model-readiness > button {
+    align-self: flex-start;
+    min-width: 72px;
+    white-space: nowrap;
+  }
+
+  .model-readiness-details {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .model-readiness-details span {
+    min-width: 0;
+  }
+
+  .url-import-row,
+  .local-import-actions,
+  .queue-header,
+  .export-toolbar,
+  .setting-row,
+  .model-maintenance-row,
+  .consent-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .job-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .job-status,
+  .job-actions {
+    align-items: stretch;
+    max-width: none;
+    min-width: 0;
+  }
+
+  .job-progress-row {
+    grid-template-columns: 1fr;
+  }
+
+  .export-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .import-options,
+  .import-options > label:not(.checkbox-label) {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 1060px) {
+  .diag-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .import-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .app-header {
+    grid-template-columns: 72px minmax(76px, 1fr);
+  }
+
+  .app-main {
+    padding: 18px 14px 22px;
+  }
+
+  .page {
+    max-width: none;
+  }
+
+  .import-page {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .drop-zone,
+  .url-import {
+    min-height: 0;
+  }
+
+  .drop-zone-content {
+    min-height: 282px;
+    padding: 26px 22px;
+  }
+
+  .drop-zone::after {
+    right: 16px;
+    bottom: 16px;
+    width: 52%;
+    height: 88px;
+  }
+
+  .drop-icon {
+    width: 54px;
+    height: 54px;
+    margin-bottom: 18px;
+  }
+
+  .url-import {
+    padding: 22px;
+  }
+
+  .url-import-row,
+  .url-options-row {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .import-options {
+    grid-template-columns: 1fr;
+  }
+
+  .diag-grid,
+  .batch-report-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .export-toolbar {
+    position: static;
+  }
+
+  .export-toolbar label,
+  .export-toolbar select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .settings-section {
+    padding: 18px;
+  }
+
+  .setting-row {
+    gap: 10px;
+  }
+}
