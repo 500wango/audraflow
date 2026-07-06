@@ -87,7 +87,10 @@ function Test-AudraFlowAppLayout {
     'bin\whisper-cli.exe',
     'bin\ffmpeg.exe',
     'bin\ffprobe.exe',
-    'bin\yt-dlp.exe'
+    'bin\yt-dlp.exe',
+    'bin\llama-funasr-cli.exe',
+    'bin\python\python.exe',
+    'bin\python\.audraflow-runtime.json'
   )
 
   foreach ($relativePath in $required) {
@@ -107,6 +110,21 @@ function Test-AudraFlowAppLayout {
   foreach ($relativePath in $requiredDlls) {
     $item = Assert-File -Path (Join-Path $resolved $relativePath) -MinBytes 1024
     Write-Host ("OK {0} ({1:N0} bytes)" -f $relativePath, $item.Length)
+  }
+
+  $requiredPythonPackages = @(
+    'bin\python\Lib\site-packages\demucs',
+    'bin\python\Lib\site-packages\funasr',
+    'bin\python\Lib\site-packages\modelscope',
+    'bin\python\Lib\site-packages\torch',
+    'bin\python\Lib\site-packages\torchaudio'
+  )
+  foreach ($relativePath in $requiredPythonPackages) {
+    $path = Join-Path $resolved $relativePath
+    if (-not (Test-Path -LiteralPath $path -PathType Container)) {
+      throw "Missing Python package directory: $path"
+    }
+    Write-Host "OK $relativePath"
   }
 
   $optionalDlls = @(
@@ -135,6 +153,9 @@ function Test-AudraFlowAppLayout {
   Invoke-Checked -FilePath (Join-Path $resolved 'bin\ffprobe.exe') -Arguments @('-version') -WorkingDirectory $resolved
   Invoke-Checked -FilePath (Join-Path $resolved 'bin\whisper-cli.exe') -Arguments @('--help') -WorkingDirectory $resolved -AllowedExitCodes @(0, 1)
   Invoke-Checked -FilePath (Join-Path $resolved 'bin\yt-dlp.exe') -Arguments @('--version') -WorkingDirectory $resolved
+  Invoke-Checked -FilePath (Join-Path $resolved 'bin\llama-funasr-cli.exe') -Arguments @('--help') -WorkingDirectory $resolved -AllowedExitCodes @(0, 1)
+  Invoke-Checked -FilePath (Join-Path $resolved 'bin\python\python.exe') -Arguments @('-c', 'import demucs, funasr, modelscope, torch, torchaudio; print("AudraFlow Python runtime ready")') -WorkingDirectory $resolved
+  Invoke-Checked -FilePath (Join-Path $resolved 'bin\python\python.exe') -Arguments @('-m', 'demucs', '--help') -WorkingDirectory $resolved
 
   return $resolved
 }

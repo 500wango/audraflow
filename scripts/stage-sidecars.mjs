@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readdir, rm, stat } from 'node:fs/promises';
+import { copyFile, cp, mkdir, readdir, rm, stat } from 'node:fs/promises';
 import { basename, delimiter, dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
@@ -15,6 +15,7 @@ const releaseDir = process.env.AUDRAFLOW_TARGET_TRIPLE || process.env.CARGO_BUIL
   : join(targetDir, 'release');
 const binariesDir = join(workspaceRoot, 'src-tauri', 'binaries');
 const windowsResourceBinDir = join(binariesDir, 'windows-bin');
+const windowsPythonRuntimeSourceDir = join(workspaceRoot, 'release', 'windows-runtime', 'python');
 const requiredWindowsRuntimeDllNames = [
   'vcruntime140.dll',
   'vcruntime140_1.dll',
@@ -146,6 +147,14 @@ const windowsToolSources = [
       join(workspaceRoot, 'release', 'windows-portable', 'AudraFlow', 'bin', 'yt-dlp.exe'),
     ],
   },
+  {
+    bundleName: 'llama-funasr-cli',
+    sources: [
+      join(workspaceRoot, 'external', 'Fun-ASR', 'runtime', 'llama.cpp', 'build-windows', 'bin', 'Release', 'llama-funasr-cli.exe'),
+      join(workspaceRoot, 'external', 'Fun-ASR', 'runtime', 'llama.cpp', 'build-windows', 'bin', 'llama-funasr-cli.exe'),
+      join(workspaceRoot, 'release', 'windows-portable', 'AudraFlow', 'bin', 'llama-funasr-cli.exe'),
+    ],
+  },
 ];
 const macosToolSources = [
   {
@@ -220,6 +229,13 @@ async function ensureFile(path) {
   }
 }
 
+async function ensureDirectory(path) {
+  const metadata = await stat(path);
+  if (!metadata.isDirectory()) {
+    throw new Error(`Directory is missing: ${path}`);
+  }
+}
+
 async function findExistingFile(candidates) {
   for (const candidate of candidates) {
     try {
@@ -261,6 +277,13 @@ async function copyIntoDir(source, destinationDir, destinationName = basename(so
   await mkdir(destinationDir, { recursive: true });
   const destination = join(destinationDir, destinationName);
   await copyFile(source, destination);
+  console.log(`staged ${destination}`);
+}
+
+async function copyDirectory(source, destination) {
+  await rm(destination, { recursive: true, force: true });
+  await mkdir(dirname(destination), { recursive: true });
+  await cp(source, destination, { recursive: true, force: true });
   console.log(`staged ${destination}`);
 }
 
@@ -511,6 +534,24 @@ async function assertWindowsWhisperDlls() {
   }
 }
 
+async function stageWindowsPythonRuntime() {
+  const destination = join(windowsResourceBinDir, 'python');
+  await ensureDirectory(windowsPythonRuntimeSourceDir).catch(() => {
+    throw new Error(
+      `Missing bundled Windows Python runtime: ${windowsPythonRuntimeSourceDir}. Run npm run prepare:windows-runtime before staging Windows sidecars.`,
+    );
+  });
+  await copyDirectory(windowsPythonRuntimeSourceDir, destination);
+
+  await ensureFile(join(destination, 'python.exe'));
+  await ensureFile(join(destination, '.audraflow-runtime.json'));
+  for (const packageDir of ['demucs', 'funasr', 'modelscope', 'torch', 'torchaudio']) {
+    await ensureDirectory(join(destination, 'Lib', 'site-packages', packageDir)).catch(() => {
+      throw new Error(`Bundled Windows Python runtime is missing package: ${packageDir}`);
+    });
+  }
+}
+
 async function stageWindowsResourceTool(tool) {
   const source = await findExistingFile(tool.sources);
   if (!source) {
@@ -550,6 +591,7 @@ if (targetTriple.includes('linux')) {
   }
 } else if (targetTriple.includes('windows')) {
   await rm(windowsResourceBinDir, { recursive: true, force: true });
+  await stageWindowsPythonRuntime();
   for (const tool of windowsToolSources) {
     await stageExternalTool(tool);
     await stageWindowsResourceTool(tool);

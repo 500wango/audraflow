@@ -52,6 +52,12 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Cache Windows Python runtime
+        uses: actions/cache@v4
+        with:
+          path: release/windows-runtime/python
+          key: windows-python-runtime-${{ hashFiles('scripts/prepare-windows-runtime.ps1') }}
+
       - name: Prepare FFmpeg tools
         shell: pwsh
         run: |
@@ -76,6 +82,22 @@ jobs:
             throw "whisper-cli.exe was not produced at $flatCli"
           }
 
+      - name: Build Fun-ASR CLI
+        shell: pwsh
+        run: |
+          cmake -S external\Fun-ASR\runtime\llama.cpp -B external\Fun-ASR\runtime\llama.cpp\build-windows -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF
+          cmake --build external\Fun-ASR\runtime\llama.cpp\build-windows --config Release --target llama-funasr-cli --parallel
+
+          $releaseCli = "external\Fun-ASR\runtime\llama.cpp\build-windows\bin\Release\llama-funasr-cli.exe"
+          $flatCli = "external\Fun-ASR\runtime\llama.cpp\build-windows\bin\llama-funasr-cli.exe"
+          if (Test-Path $releaseCli) {
+            Copy-Item $releaseCli $flatCli -Force
+          }
+
+          if (-not (Test-Path $flatCli)) {
+            throw "llama-funasr-cli.exe was not produced at $flatCli"
+          }
+
       - name: Lint
         run: npm run lint
 
@@ -84,6 +106,10 @@ jobs:
 
       - name: Prepare runtime assets
         run: npm run prepare:runtime-assets
+
+      - name: Prepare Windows runtime
+        shell: pwsh
+        run: npm run prepare:windows-runtime
 
       - name: Stage sidecars
         run: npm run stage:sidecars

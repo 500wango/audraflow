@@ -15,7 +15,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 ## Desktop Builds
 
-The Tauri build packages the React UI, the two required local sidecars, bundled runtime tools, and a default Whisper base model for first-run offline transcription.
+The Tauri build packages the React UI, the two required local sidecars, and the runtime tools needed to run after the user downloads or imports an ASR model.
 
 - `audraflow-orchestrator`
 - `audraflow-asr-runtime`
@@ -28,9 +28,9 @@ Linux packages also include the local runtime tools needed for transcription and
 - `yt-dlp`
 - whisper.cpp shared libraries required by `whisper-cli`
 
-Windows and macOS packages include the same command-line tools without the Linux shared libraries.
+Windows and macOS packages include the same command-line tools without the Linux shared libraries. Windows packages also include a bundled Python runtime with Demucs and SenseVoice Python dependencies.
 
-Before bundling, `npm run prepare:runtime-assets` fetches the bundled Whisper base model and platform `yt-dlp` binary, then `npm run stage:sidecars` builds the Rust sidecars in release mode and copies required external tools to `src-tauri/binaries` using Tauri's target-triple naming convention.
+Before bundling, `npm run prepare:runtime-assets` fetches the platform `yt-dlp` binary, then `npm run stage:sidecars` builds the Rust sidecars in release mode and copies required external tools to `src-tauri/binaries` using Tauri's target-triple naming convention. Windows builds also run `npm run prepare:windows-runtime` to build the bundled Python/Demucs/SenseVoice runtime.
 
 Build installers for the current platform:
 
@@ -71,9 +71,9 @@ For cross-target staging, set `AUDRAFLOW_TARGET_TRIPLE` or `CARGO_BUILD_TARGET` 
 
 ## Local ASR Engines
 
-AudraFlow defaults to Auto engine selection for new transcription jobs. Release packages include a bundled Whisper base model, so Auto uses local Whisper by default and works without Python or manual model setup. SenseVoice remains available as an explicit engine when its Python dependencies are installed. In Music / lyrics mode, Auto uses the selected or preferred Whisper model with long-context chunking. Extreme lyrics mode also merges original-audio and Demucs-vocals candidates when possible.
+AudraFlow defaults to Auto engine selection for new transcription jobs. Release packages include the native runtime tools, but ASR models are downloaded or imported from Settings. Auto uses local Whisper after a Whisper model is selected. Windows packages include the Python dependencies for SenseVoice and Demucs; SenseVoice model files are still downloaded by the engine on first use. In Music / lyrics mode, Auto uses the selected or preferred Whisper model with long-context chunking. Extreme lyrics mode also merges original-audio and Demucs-vocals candidates when possible.
 
-Settings includes Runtime Health for install validation and one-click repair. It can restore or download the default Whisper model, install a managed `yt-dlp`, and run Python package repair for optional SenseVoice and Demucs support. Manual commands and environment variables below are fallback paths when the repair action cannot be used in the target environment.
+Settings includes Runtime Health for install validation and one-click repair. It can download the default Whisper model, install a managed `yt-dlp`, and run Python package repair as a fallback for optional SenseVoice and Demucs support. Manual commands and environment variables below are fallback paths when the bundled runtime or repair action cannot be used in the target environment.
 
 The Import page also has an audio language selector:
 

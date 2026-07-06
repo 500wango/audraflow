@@ -1,5 +1,4 @@
-import { createHash } from 'node:crypto';
-import { createReadStream, createWriteStream } from 'node:fs';
+import { createWriteStream } from 'node:fs';
 import { chmod, mkdir, readFile, rename, rm, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
@@ -10,13 +9,6 @@ const targetTriple = process.env.AUDRAFLOW_TARGET_TRIPLE || process.env.CARGO_BU
 const isWindowsTarget = targetTriple.includes('windows');
 const isLinuxTarget = targetTriple.includes('linux');
 const isMacosTarget = targetTriple.includes('apple-darwin') || targetTriple.includes('darwin');
-
-const defaultModel = {
-  url: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base.bin',
-  path: join(workspaceRoot, 'release', 'default-models', 'ggml-base.bin'),
-  sha256: '60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe',
-  minBytes: 140 * 1024 * 1024,
-};
 
 const ytDlpAsset = (() => {
   if (isWindowsTarget) {
@@ -71,14 +63,6 @@ async function fileSize(path) {
   return (await stat(path)).size;
 }
 
-async function sha256File(path) {
-  const hash = createHash('sha256');
-  for await (const chunk of createReadStream(path)) {
-    hash.update(chunk);
-  }
-  return hash.digest('hex');
-}
-
 async function downloadFile(url, destination) {
   await mkdir(dirname(destination), { recursive: true });
   const tempPath = `${destination}.tmp`;
@@ -101,29 +85,6 @@ async function assertNotHtml(path, url) {
     await rm(path, { force: true });
     throw new Error(`Downloaded HTML instead of a binary asset: ${url}`);
   }
-}
-
-async function ensureDefaultModel() {
-  if (await pathExists(defaultModel.path)) {
-    const size = await fileSize(defaultModel.path);
-    const hash = await sha256File(defaultModel.path);
-    if (size >= defaultModel.minBytes && hash === defaultModel.sha256) {
-      console.log(`default model ready: ${defaultModel.path}`);
-      return;
-    }
-    console.log('default model exists but failed validation; downloading a fresh copy');
-    await rm(defaultModel.path, { force: true });
-  }
-
-  console.log(`downloading default model: ${defaultModel.url}`);
-  await downloadFile(defaultModel.url, defaultModel.path);
-  const size = await fileSize(defaultModel.path);
-  const hash = await sha256File(defaultModel.path);
-  if (size < defaultModel.minBytes || hash !== defaultModel.sha256) {
-    await rm(defaultModel.path, { force: true });
-    throw new Error(`Default model validation failed: size=${size}, sha256=${hash}`);
-  }
-  console.log(`default model ready: ${defaultModel.path}`);
 }
 
 async function ensureYtDlp() {
@@ -157,5 +118,4 @@ async function ensureYtDlp() {
   console.log(`yt-dlp ready: ${ytDlpAsset.path}`);
 }
 
-await ensureDefaultModel();
 await ensureYtDlp();

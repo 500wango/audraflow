@@ -2395,7 +2395,7 @@ fn ensure_runtime_command_startable(
 
 fn ensure_sensevoice_python_available() -> Result<(), String> {
     let invocation = resolve_python_invocation().ok_or_else(|| {
-        "SenseVoice requires Python 3. Install Python 3 or set AUDRAFLOW_PYTHON_BIN.".to_string()
+        "SenseVoice requires the bundled Python runtime. Reinstall AudraFlow or set AUDRAFLOW_PYTHON_BIN.".to_string()
     })?;
     let script = r#"import importlib.util, sys
 missing = [name for name in ("funasr", "modelscope") if importlib.util.find_spec(name) is None]
@@ -2411,7 +2411,7 @@ print("sensevoice dependencies ready")
         run_runtime_probe_with_timeout(&invocation.program, &args, Duration::from_secs(8))
             .map_err(|error| {
                 format!(
-                    "SenseVoice Python dependency check failed at {}: {error}. Install with: python3 -m pip install --user -U funasr modelscope",
+                    "SenseVoice Python dependency check failed at {}: {error}. Reinstall AudraFlow or repair the bundled runtime.",
                     invocation.display
                 )
             })?;
@@ -2420,7 +2420,7 @@ print("sensevoice dependencies ready")
     }
 
     Err(format!(
-        "SenseVoice requires Python packages funasr and modelscope. {} Install with: python3 -m pip install --user -U funasr modelscope",
+        "SenseVoice requires Python packages funasr and modelscope. {} Reinstall AudraFlow or repair the bundled runtime.",
         short_output(&output.stderr)
             .or_else(|| short_output(&output.stdout))
             .unwrap_or_else(|| "Dependency check failed.".into())
@@ -2528,6 +2528,10 @@ fn resolve_python_invocation() -> Option<RuntimeInvocation> {
         });
     }
 
+    if let Some(invocation) = find_bundled_python_invocation() {
+        return Some(invocation);
+    }
+
     ["python3", "python", "py"].iter().find_map(|name| {
         find_system_command(name).map(|program| {
             let mut base_args = Vec::new();
@@ -2543,6 +2547,28 @@ fn resolve_python_invocation() -> Option<RuntimeInvocation> {
     })
 }
 
+fn find_bundled_python_invocation() -> Option<RuntimeInvocation> {
+    for root in runtime_search_roots() {
+        for candidate in [
+            root.join("bin").join("python").join("python.exe"),
+            root.join("resources")
+                .join("bin")
+                .join("python")
+                .join("python.exe"),
+            root.join("python").join("python.exe"),
+        ] {
+            if candidate.is_file() {
+                return Some(RuntimeInvocation {
+                    display: candidate.to_string_lossy().into_owned(),
+                    program: candidate,
+                    base_args: vec![],
+                });
+            }
+        }
+    }
+    None
+}
+
 fn resolve_demucs_invocation_for_health() -> Option<RuntimeInvocation> {
     if let Some(path) = command_env_override("AUDRAFLOW_DEMUCS_BIN")
         .or_else(|| command_env_override("FT_DEMUCS_BIN"))
@@ -2552,6 +2578,13 @@ fn resolve_demucs_invocation_for_health() -> Option<RuntimeInvocation> {
             program: path,
             base_args: vec![],
         });
+    }
+
+    if let Some(mut invocation) = find_bundled_python_invocation() {
+        invocation.display = format!("{} -m demucs", invocation.display);
+        invocation.base_args.push("-m".into());
+        invocation.base_args.push("demucs".into());
+        return Some(invocation);
     }
 
     if let Some(program) = find_system_command("demucs") {

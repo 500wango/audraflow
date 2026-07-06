@@ -858,12 +858,13 @@ fn transcribe_file_with_sensevoice_sync(
 struct DemucsInvocation {
     program: OsString,
     base_args: Vec<OsString>,
+    envs: Vec<(OsString, OsString)>,
     label: String,
 }
 
 fn run_demucs_vocal_separation(input_path: &Path, temp_dir: &Path) -> anyhow::Result<PathBuf> {
     let demucs = resolve_demucs_invocation()
-        .context("demucs was not found in PATH; install demucs or set AUDRAFLOW_DEMUCS_BIN")?;
+        .context("Demucs runtime was not found; reinstall AudraFlow or set AUDRAFLOW_DEMUCS_BIN")?;
     let output_dir = temp_dir.join("demucs");
     std::fs::create_dir_all(&output_dir)?;
 
@@ -873,7 +874,8 @@ fn run_demucs_vocal_separation(input_path: &Path, temp_dir: &Path) -> anyhow::Re
         input_path.display()
     );
 
-    let output = Command::new(&demucs.program)
+    let mut command = Command::new(&demucs.program);
+    command
         .args(&demucs.base_args)
         .arg("--two-stems")
         .arg("vocals")
@@ -881,7 +883,11 @@ fn run_demucs_vocal_separation(input_path: &Path, temp_dir: &Path) -> anyhow::Re
         .arg(&output_dir)
         .arg(input_path)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    for (name, value) in &demucs.envs {
+        command.env(name, value);
+    }
+    let output = command
         .output()
         .with_context(|| format!("failed to start {}", demucs.label))?;
 
@@ -909,6 +915,7 @@ fn resolve_demucs_invocation() -> Option<DemucsInvocation> {
             label: program.to_string_lossy().into_owned(),
             program,
             base_args: Vec::new(),
+            envs: Vec::new(),
         };
         if probe_demucs(&invocation) {
             return Some(invocation);
@@ -916,20 +923,30 @@ fn resolve_demucs_invocation() -> Option<DemucsInvocation> {
         log::warn!("AUDRAFLOW_DEMUCS_BIN is set but is not runnable as demucs");
     }
 
+    if let Some(invocation) = bundled_python_demucs_invocation() {
+        if probe_demucs(&invocation) {
+            return Some(invocation);
+        }
+        log::warn!("Bundled Python runtime was found but could not run demucs");
+    }
+
     let candidates = [
         DemucsInvocation {
             program: OsString::from("demucs"),
             base_args: Vec::new(),
+            envs: Vec::new(),
             label: "demucs".into(),
         },
         DemucsInvocation {
             program: OsString::from("python3"),
             base_args: vec![OsString::from("-m"), OsString::from("demucs")],
+            envs: Vec::new(),
             label: "python3 -m demucs".into(),
         },
         DemucsInvocation {
             program: OsString::from("python"),
             base_args: vec![OsString::from("-m"), OsString::from("demucs")],
+            envs: Vec::new(),
             label: "python -m demucs".into(),
         },
         DemucsInvocation {
@@ -939,11 +956,75 @@ fn resolve_demucs_invocation() -> Option<DemucsInvocation> {
                 OsString::from("-m"),
                 OsString::from("demucs"),
             ],
+            envs: Vec::new(),
             label: "py -3 -m demucs".into(),
         },
     ];
 
     candidates.into_iter().find(probe_demucs)
+}
+
+fn bundled_python_demucs_invocation() -> Option<DemucsInvocation> {
+    for root in runtime_search_roots() {
+        for python in [
+            root.join("bin").join("python").join("python.exe"),
+            root.join("resources")
+                .join("bin")
+                .join("python")
+                .join("python.exe"),
+            root.join("python").join("python.exe"),
+        ] {
+            if !python.is_file() {
+                continue;
+            }
+            let python_dir = python.parent().unwrap_or_else(|| Path::new(""));
+            let envs = bundled_python_envs(python_dir);
+            return Some(DemucsInvocation {
+                label: format!("{} -m demucs", python.display()),
+                program: python.into_os_string(),
+                base_args: vec![OsString::from("-m"), OsString::from("demucs")],
+                envs,
+            });
+        }
+    }
+    None
+}
+
+fn bundled_python_envs(python_dir: &Path) -> Vec<(OsString, OsString)> {
+    vec![
+        (OsString::from("PYTHONUTF8"), OsString::from("1")),
+        (OsString::from("PYTHONNOUSERSITE"), OsString::from("1")),
+        (
+            OsString::from("TORCH_HOME"),
+            python_dir.join("torch-cache").into_os_string(),
+        ),
+        (
+            OsString::from("HF_HOME"),
+            python_dir.join("hf-cache").into_os_string(),
+        ),
+        (
+            OsString::from("MODELSCOPE_CACHE"),
+            python_dir.join("modelscope-cache").into_os_string(),
+        ),
+    ]
+}
+
+fn runtime_search_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        roots.extend(exe.ancestors().map(Path::to_path_buf));
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        roots.extend(cwd.ancestors().map(Path::to_path_buf));
+    }
+
+    let mut deduped = Vec::new();
+    for root in roots {
+        if !deduped.contains(&root) {
+            deduped.push(root);
+        }
+    }
+    deduped
 }
 
 fn demucs_env_override() -> Option<OsString> {
@@ -953,11 +1034,16 @@ fn demucs_env_override() -> Option<OsString> {
 }
 
 fn probe_demucs(invocation: &DemucsInvocation) -> bool {
-    Command::new(&invocation.program)
+    let mut command = Command::new(&invocation.program);
+    command
         .args(&invocation.base_args)
         .arg("--help")
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(Stdio::null());
+    for (name, value) in &invocation.envs {
+        command.env(name, value);
+    }
+    command
         .status()
         .is_ok_and(|status| status.success())
 }

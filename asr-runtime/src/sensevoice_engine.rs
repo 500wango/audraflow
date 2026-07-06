@@ -6,7 +6,7 @@
 use anyhow::Context;
 use audraflow_ipc::Segment;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::audio_pipeline::AudioChunk;
@@ -150,7 +150,7 @@ struct SenseVoiceSegment {
 impl SenseVoiceEngine {
     pub fn new(language: impl Into<String>) -> anyhow::Result<Self> {
         let python_bin = resolve_python_bin().context(
-            "Python was not found. Install Python 3 or set AUDRAFLOW_PYTHON_BIN for SenseVoice.",
+            "Bundled Python was not found. Reinstall AudraFlow or set AUDRAFLOW_PYTHON_BIN for SenseVoice.",
         )?;
         Ok(Self {
             python_bin,
@@ -223,7 +223,7 @@ impl SenseVoiceEngine {
         let response: SenseVoiceResponse = serde_json::from_str(json)?;
         if let Some(error) = response.error {
             anyhow::bail!(
-                "{error}. Install with: python3 -m pip install --user -U funasr modelscope"
+                "{error}. Reinstall AudraFlow or repair the bundled Python runtime."
             );
         }
         if !output.status.success() {
@@ -361,9 +361,46 @@ fn resolve_python_bin() -> Option<PathBuf> {
     std::env::var_os("AUDRAFLOW_PYTHON_BIN")
         .map(PathBuf::from)
         .filter(|path| !path.as_os_str().is_empty())
+        .or_else(find_bundled_python_bin)
         .or_else(|| which::which("python3").ok())
         .or_else(|| which::which("python").ok())
         .or_else(|| which::which("py").ok())
+}
+
+fn find_bundled_python_bin() -> Option<PathBuf> {
+    for root in runtime_search_roots() {
+        for candidate in [
+            root.join("bin").join("python").join("python.exe"),
+            root.join("resources")
+                .join("bin")
+                .join("python")
+                .join("python.exe"),
+            root.join("python").join("python.exe"),
+        ] {
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
+fn runtime_search_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        roots.extend(exe.ancestors().map(Path::to_path_buf));
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        roots.extend(cwd.ancestors().map(Path::to_path_buf));
+    }
+
+    let mut deduped = Vec::new();
+    for root in roots {
+        if !deduped.contains(&root) {
+            deduped.push(root);
+        }
+    }
+    deduped
 }
 
 fn extract_prefixed_json(output: &str) -> Option<&str> {

@@ -6,11 +6,18 @@ if (process.env.AUDRAFLOW_SKIP_BEFORE_BUILD === '1') {
 }
 
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const targetTriple = process.env.AUDRAFLOW_TARGET_TRIPLE || process.env.CARGO_BUILD_TARGET || '';
+const isWindowsTarget = process.platform === 'win32' || targetTriple.includes('windows');
 const steps = [
   ['build', ['run', 'build']],
   ['prepare runtime assets', ['run', 'prepare:runtime-assets']],
-  ['stage sidecars', ['run', 'stage:sidecars']],
 ];
+
+if (isWindowsTarget) {
+  steps.push(['prepare Windows runtime', ['run', 'prepare:windows-runtime']]);
+}
+
+steps.push(['stage sidecars', ['run', 'stage:sidecars']]);
 
 for (const [label, args] of steps) {
   console.log(`\n== Tauri beforeBuild: ${label}`);
