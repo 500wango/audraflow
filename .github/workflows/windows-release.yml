@@ -2,12 +2,22 @@ name: Windows Release
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "Upload the Windows artifacts to a GitHub Release"
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        description: "Release tag to create/update when publishing manually, for example v1.0.0"
+        required: false
+        type: string
   push:
     tags:
       - "v*"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-windows:
@@ -86,3 +96,53 @@ jobs:
             target/release/bundle/msi/*.msi
             release/AudraFlow_*_manifest.json
             release/SHA256SUMS
+
+      - name: Resolve release publishing
+        id: release
+        shell: pwsh
+        env:
+          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/') }}
+          REF_NAME: ${{ github.ref_name }}
+          PUBLISH_RELEASE: ${{ inputs.publish_release || 'false' }}
+          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
+        run: |
+          $isTag = $env:IS_TAG.ToLowerInvariant() -eq "true"
+          $manualPublish = $env:PUBLISH_RELEASE.ToLowerInvariant() -eq "true"
+          $releaseTag = $env:RELEASE_TAG_INPUT
+
+          if ($isTag) {
+            $releaseTag = $env:REF_NAME
+          }
+
+          if ($manualPublish -and [string]::IsNullOrWhiteSpace($releaseTag)) {
+            throw "release_tag is required when publish_release is enabled for a manual workflow run."
+          }
+
+          $publish = $isTag -or $manualPublish
+          "publish=$($publish.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "tag=$releaseTag" >> $env:GITHUB_OUTPUT
+
+      - name: Upload assets to GitHub Release
+        if: steps.release.outputs.publish == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          $assets = @()
+          $assets += Get-ChildItem -LiteralPath "target\release\bundle\nsis" -Filter "*.exe" -File -ErrorAction SilentlyContinue
+          $assets += Get-ChildItem -LiteralPath "target\release\bundle\msi" -Filter "*.msi" -File -ErrorAction SilentlyContinue
+          $assets += Get-ChildItem -LiteralPath "release" -Filter "AudraFlow_*_manifest.json" -File -ErrorAction SilentlyContinue
+          $assets += Get-Item -LiteralPath "release\SHA256SUMS" -ErrorAction SilentlyContinue
+
+          if (-not $assets -or $assets.Count -eq 0) {
+            throw "No release assets were found."
+          }
+
+          gh release view $env:RELEASE_TAG *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $env:RELEASE_TAG --title "AudraFlow $env:RELEASE_TAG" --notes "Automated Windows release build."
+          }
+
+          $assetPaths = $assets | ForEach-Object { $_.FullName }
+          gh release upload $env:RELEASE_TAG @assetPaths --clobber
