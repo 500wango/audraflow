@@ -61,6 +61,18 @@ jobs:
 
           test -f external/whisper.cpp/build/bin/whisper-cli
 
+      - name: Build Fun-ASR CLI
+        run: |
+          cmake -S external/Fun-ASR/runtime/llama.cpp -B external/Fun-ASR/runtime/llama.cpp/build \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build external/Fun-ASR/runtime/llama.cpp/build --config Release --target llama-funasr-cli --parallel
+
+          if [[ -f external/Fun-ASR/runtime/llama.cpp/build/bin/Release/llama-funasr-cli && ! -f external/Fun-ASR/runtime/llama.cpp/build/bin/llama-funasr-cli ]]; then
+            cp external/Fun-ASR/runtime/llama.cpp/build/bin/Release/llama-funasr-cli external/Fun-ASR/runtime/llama.cpp/build/bin/llama-funasr-cli
+          fi
+
+          test -f external/Fun-ASR/runtime/llama.cpp/build/bin/llama-funasr-cli
+
       - name: Install frontend dependencies
         run: npm ci
 
@@ -83,6 +95,23 @@ jobs:
           fi
           ditto -c -k --keepParent "$app_path" "release/AudraFlow-macos-app.zip"
 
+      - name: Package runtime components
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          mkdir -p release
+          python3 - <<PY
+          import zipfile
+          from pathlib import Path
+
+          version = "${version}"
+          source = Path("external/Fun-ASR/runtime/llama.cpp/build/bin/llama-funasr-cli")
+          if not source.is_file():
+              raise SystemExit(f"Missing Fun-ASR runtime component: {source}")
+          archive = Path(f"release/AudraFlow_{version}_macos_funasr-runtime.zip")
+          with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+              zf.write(source, "llama-funasr-cli")
+          PY
+
       - name: Generate release manifest
         run: npm run release:manifest -- --require-macos --artifact-set macos
 
@@ -97,6 +126,7 @@ jobs:
           path: |
             target/release/bundle/dmg/*.dmg
             release/AudraFlow-macos-app.zip
+            release/AudraFlow_*_macos_funasr-runtime.zip
             release/AudraFlow_*_macos_manifest.json
             release/SHA256SUMS.macos
 
@@ -138,6 +168,7 @@ jobs:
             find target/release/bundle/dmg -type f -name '*.dmg' -print
             find release -type f \( \
               -name 'AudraFlow-macos-app.zip' -o \
+              -name 'AudraFlow_*_macos_funasr-runtime.zip' -o \
               -name 'AudraFlow_*_macos_manifest.json' -o \
               -name 'SHA256SUMS.macos' \
             \) -print

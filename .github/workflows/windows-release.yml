@@ -76,6 +76,22 @@ jobs:
             throw "whisper-cli.exe was not produced at $flatCli"
           }
 
+      - name: Build Fun-ASR CLI
+        shell: pwsh
+        run: |
+          cmake -S external\Fun-ASR\runtime\llama.cpp -B external\Fun-ASR\runtime\llama.cpp\build -DCMAKE_BUILD_TYPE=Release
+          cmake --build external\Fun-ASR\runtime\llama.cpp\build --config Release --target llama-funasr-cli --parallel
+
+          $releaseCli = "external\Fun-ASR\runtime\llama.cpp\build\bin\Release\llama-funasr-cli.exe"
+          $flatCli = "external\Fun-ASR\runtime\llama.cpp\build\bin\llama-funasr-cli.exe"
+          if (Test-Path $releaseCli) {
+            Copy-Item $releaseCli $flatCli -Force
+          }
+
+          if (-not (Test-Path $flatCli)) {
+            throw "llama-funasr-cli.exe was not produced at $flatCli"
+          }
+
       - name: Package runtime components
         shell: pwsh
         run: |
@@ -116,6 +132,26 @@ jobs:
             Copy-Item -LiteralPath $source -Destination (Join-Path $ffmpegDir $name) -Force
           }
           Compress-Archive -Path (Join-Path $ffmpegDir "*") -DestinationPath "release\AudraFlow_${version}_windows_ffmpeg-runtime.zip" -Force
+
+          $funasrDir = Join-Path $tempRoot "funasr\bin"
+          New-Item -ItemType Directory -Force $funasrDir | Out-Null
+          $funasrSearchRoots = @(
+            "external\Fun-ASR\runtime\llama.cpp\build\bin\Release",
+            "external\Fun-ASR\runtime\llama.cpp\build\bin",
+            "external\Fun-ASR\runtime\llama.cpp\build"
+          )
+          $funasrCli = $null
+          foreach ($root in $funasrSearchRoots) {
+            if (Test-Path -LiteralPath $root) {
+              $funasrCli = Get-ChildItem -LiteralPath $root -Recurse -Filter "llama-funasr-cli.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+              if ($funasrCli) { break }
+            }
+          }
+          if (-not $funasrCli) {
+            throw "Missing Fun-ASR runtime component: llama-funasr-cli.exe"
+          }
+          Copy-Item -LiteralPath $funasrCli.FullName -Destination (Join-Path $funasrDir "llama-funasr-cli.exe") -Force
+          Compress-Archive -Path (Join-Path $funasrDir "*") -DestinationPath "release\AudraFlow_${version}_windows_funasr-runtime.zip" -Force
 
       - name: Lint
         run: npm run lint

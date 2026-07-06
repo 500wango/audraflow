@@ -71,6 +71,13 @@ jobs:
             -DGGML_NATIVE=OFF
           cmake --build external/whisper.cpp/build-linux --config Release --target whisper-cli --parallel
 
+      - name: Build Fun-ASR CLI
+        run: |
+          cmake -S external/Fun-ASR/runtime/llama.cpp -B external/Fun-ASR/runtime/llama.cpp/build \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build external/Fun-ASR/runtime/llama.cpp/build --config Release --target llama-funasr-cli --parallel
+          test -f external/Fun-ASR/runtime/llama.cpp/build/bin/llama-funasr-cli
+
       - name: Install frontend dependencies
         run: npm ci
 
@@ -82,6 +89,23 @@ jobs:
 
       - name: Build Linux packages
         run: npm run desktop:build:linux
+
+      - name: Package runtime components
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          mkdir -p release
+          python3 - <<PY
+          import zipfile
+          from pathlib import Path
+
+          version = "${version}"
+          source = Path("external/Fun-ASR/runtime/llama.cpp/build/bin/llama-funasr-cli")
+          if not source.is_file():
+              raise SystemExit(f"Missing Fun-ASR runtime component: {source}")
+          archive = Path(f"release/AudraFlow_{version}_linux_funasr-runtime.zip")
+          with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+              zf.write(source, "llama-funasr-cli")
+          PY
 
       - name: Generate release manifest
         run: npm run release:manifest -- --require-linux --artifact-set linux
@@ -98,6 +122,7 @@ jobs:
             target/release/bundle/deb/*.deb
             target/release/bundle/rpm/*.rpm
             target/release/bundle/appimage/*.AppImage
+            release/*.zip
             release/AudraFlow_*_linux_manifest.json
             release/SHA256SUMS.linux
 
@@ -142,6 +167,7 @@ jobs:
               -name '*.AppImage' \
             \) -print
             find release -type f \( \
+              -name '*.zip' -o \
               -name 'AudraFlow_*_linux_manifest.json' -o \
               -name 'SHA256SUMS.linux' \
             \) -print

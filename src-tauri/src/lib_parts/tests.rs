@@ -42,6 +42,11 @@ mod tests {
         assert_eq!(normalize_runtime_component_id("whisperCli"), Some("whisper"));
         assert_eq!(normalize_runtime_component_id("whisper-cli"), Some("whisper"));
         assert_eq!(normalize_runtime_component_id("ffprobe"), Some("ffmpeg"));
+        assert_eq!(normalize_runtime_component_id("funasrCli"), Some("funasr"));
+        assert_eq!(
+            normalize_runtime_component_id("llama-funasr-cli"),
+            Some("funasr")
+        );
         assert_eq!(normalize_runtime_component_id("ytDlp"), Some("yt-dlp"));
         assert_eq!(normalize_runtime_component_id("unknown"), None);
     }

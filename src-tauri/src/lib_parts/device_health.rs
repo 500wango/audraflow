@@ -151,6 +151,7 @@ fn runtime_dependency_repairable(id: &str) -> bool {
             | "ffmpeg"
             | "ffprobe"
             | "ytDlp"
+            | "funasrCli"
             | "sensevoicePython"
             | "demucs"
     )

@@ -222,6 +222,7 @@ async fn repair_runtime_dependency(
         "defaultWhisperModel" => repair_default_whisper_model(&app_handle).await?,
         "whisperCli" => install_runtime_component_by_id(&app_handle, "whisper").await?,
         "ffmpeg" | "ffprobe" => install_runtime_component_by_id(&app_handle, "ffmpeg").await?,
+        "funasrCli" => install_runtime_component_by_id(&app_handle, "funasr").await?,
         "ytDlp" => install_runtime_component_by_id(&app_handle, "yt-dlp").await?,
         "sensevoicePython" => {
             repair_python_packages(

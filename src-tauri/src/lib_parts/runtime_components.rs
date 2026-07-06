@@ -6,6 +6,8 @@ enum RuntimeComponentSourceKind {
 
 const YT_DLP_WINDOWS_REQUIRED_FILES: &[&str] = &["yt-dlp.exe"];
 const YT_DLP_UNIX_REQUIRED_FILES: &[&str] = &["yt-dlp"];
+const FUNASR_WINDOWS_REQUIRED_FILES: &[&str] = &["llama-funasr-cli.exe"];
+const FUNASR_UNIX_REQUIRED_FILES: &[&str] = &["llama-funasr-cli"];
 
 #[derive(Clone)]
 struct RuntimeComponentSpec {
@@ -58,6 +60,21 @@ fn runtime_component_specs() -> Vec<RuntimeComponentSpec> {
     }
 
     specs.push(RuntimeComponentSpec {
+        id: "funasr",
+        kind: "experimental",
+        env_url: "AUDRAFLOW_COMPONENT_FUNASR_URL",
+        default_url: github_release_asset_url(&format!(
+            "AudraFlow_{}_{}_funasr-runtime.zip",
+            env!("CARGO_PKG_VERSION"),
+            runtime_component_platform_name()
+        )),
+        download_size_bytes: 16 * 1024 * 1024,
+        min_download_bytes: 512 * 1024,
+        required_files: funasr_component_required_files(),
+        source_kind: RuntimeComponentSourceKind::ZipByFileName,
+    });
+
+    specs.push(RuntimeComponentSpec {
         id: "yt-dlp",
         kind: "optional",
         env_url: "AUDRAFLOW_COMPONENT_YT_DLP_URL",
@@ -78,6 +95,24 @@ fn yt_dlp_component_required_files() -> &'static [&'static str] {
         YT_DLP_WINDOWS_REQUIRED_FILES
     } else {
         YT_DLP_UNIX_REQUIRED_FILES
+    }
+}
+
+fn funasr_component_required_files() -> &'static [&'static str] {
+    if cfg!(windows) {
+        FUNASR_WINDOWS_REQUIRED_FILES
+    } else {
+        FUNASR_UNIX_REQUIRED_FILES
+    }
+}
+
+fn runtime_component_platform_name() -> &'static str {
+    if cfg!(windows) {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
     }
 }
 
@@ -175,6 +210,9 @@ fn normalize_runtime_component_id(id: &str) -> Option<&'static str> {
     match id.trim() {
         "whisper" | "whisperCli" | "whisper-cli" => Some("whisper"),
         "ffmpeg" | "ffprobe" => Some("ffmpeg"),
+        "funasr" | "funasrCli" | "fun-asr" | "fun-asr-cli" | "llama-funasr-cli" => {
+            Some("funasr")
+        }
         "ytDlp" | "yt-dlp" | "ytdlp" => Some("yt-dlp"),
         _ => None,
     }
