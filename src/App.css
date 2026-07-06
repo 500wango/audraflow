@@ -632,6 +632,7 @@ html, body, #root {
 
   .model-row,
   .runtime-health-row,
+  .runtime-component-row,
   .glossary-row {
     grid-template-columns: 1fr;
     align-items: stretch;
@@ -639,11 +640,13 @@ html, body, #root {
 
   .model-row-actions,
   .runtime-health-actions,
+  .runtime-component-actions,
   .glossary-form-actions {
     flex-wrap: wrap;
   }
 
-  .runtime-health-actions {
+  .runtime-health-actions,
+  .runtime-component-actions {
     justify-content: flex-start;
   }
 }
@@ -1680,6 +1683,79 @@ html, body, #root {
 
 .runtime-health-actions .runtime-fix {
   flex: 1 1 160px;
+}
+
+.runtime-component-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.runtime-component-panel h4 {
+  margin: 0 0 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.runtime-component-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.runtime-component-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.runtime-component-main {
+  min-width: 0;
+}
+
+.runtime-component-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.runtime-component-meta span {
+  max-width: 100%;
+  padding: 3px 7px;
+  overflow-wrap: anywhere;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+}
+
+.runtime-component-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.runtime-component-actions .runtime-fix {
+  max-width: 180px;
+  margin-top: 4px;
+}
+
+.runtime-component-progress-text {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 .model-summary {

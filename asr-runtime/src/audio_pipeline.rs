@@ -572,18 +572,16 @@ impl AudioPipeline {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-/// Find a binary in PATH or in the bundled directory.
+/// Find a binary from env, managed runtime components, bundled paths, then PATH.
 fn find_binary(name: &str) -> anyhow::Result<String> {
     if let Some(path) = binary_env_override(name) {
         return Ok(path.display().to_string());
     }
 
-    // Check PATH first
-    if let Ok(path) = which::which(name) {
+    if let Some(path) = managed_component_binary("ffmpeg", name) {
         return Ok(path.display().to_string());
     }
 
-    // Check next to the executable and workspace ancestors (bundled distribution)
     if let Ok(exe_path) = std::env::current_exe() {
         for root in exe_path.ancestors() {
             for bundled in bundled_binary_candidates(root, name) {
@@ -594,10 +592,66 @@ fn find_binary(name: &str) -> anyhow::Result<String> {
         }
     }
 
+    if let Ok(path) = which::which(name) {
+        return Ok(path.display().to_string());
+    }
+
     anyhow::bail!(
-        "{} not found. Install FFmpeg or ensure it's bundled with the application.",
-        name
+        "{} not found. Install the FFmpeg runtime component in Settings or set AUDRAFLOW_{}_BIN.",
+        name,
+        name.to_ascii_uppercase().replace('-', "_")
     )
+}
+
+fn managed_component_binary(component_id: &str, name: &str) -> Option<std::path::PathBuf> {
+    let binary_name = platform_binary_name(name);
+    let path = runtime_component_bin_dir(component_id).join(binary_name);
+    path.is_file().then_some(path)
+}
+
+fn platform_binary_name(name: &str) -> String {
+    if cfg!(windows) && !name.ends_with(".exe") {
+        format!("{name}.exe")
+    } else {
+        name.to_string()
+    }
+}
+
+fn runtime_component_bin_dir(component_id: &str) -> std::path::PathBuf {
+    app_data_dir()
+        .join("runtime")
+        .join("components")
+        .join(component_id)
+        .join("bin")
+}
+
+fn app_data_dir() -> std::path::PathBuf {
+    if let Some(path) = std::env::var_os("AUDRAFLOW_APP_DATA_DIR")
+        .map(std::path::PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+    {
+        return path;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return std::env::var_os("APPDATA")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join("com.audraflow.app");
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::env::var_os("XDG_DATA_HOME")
+            .map(std::path::PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("HOME")
+                    .map(|home| std::path::PathBuf::from(home).join(".local/share"))
+            })
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join("com.audraflow.app")
+    }
 }
 
 fn binary_env_override(name: &str) -> Option<std::path::PathBuf> {

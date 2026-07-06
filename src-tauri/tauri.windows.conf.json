@@ -1,8 +1,5 @@
 {
   "bundle": {
-    "resources": {
-      "binaries/windows-bin/": "bin/"
-    },
     "externalBin": [
       "binaries/audraflow-orchestrator",
       "binaries/audraflow-asr-runtime"

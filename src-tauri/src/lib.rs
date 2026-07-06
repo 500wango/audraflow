@@ -10,12 +10,14 @@ use audraflow_ipc::{
 use audraflow_licensing::{LicenseManager, LicenseState};
 use audraflow_scheduler::{DeviceTier, Scheduler, SchedulerInput};
 use audraflow_storage::SegmentRow;
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 #[allow(unused_imports)]
 use tauri::{Emitter, Manager};
+use tokio::io::AsyncWriteExt;
 
 #[cfg(target_os = "windows")]
 const ORCHESTRATOR_PIPE: &str = r"\\.\pipe\audraflow-orchestrator";
@@ -55,6 +57,16 @@ struct JobProgressEvent {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ModelDownloadProgressEvent {
+    id: String,
+    downloaded_bytes: u64,
+    total_bytes: u64,
+    progress_pct: f64,
+    message: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeComponentProgressEvent {
     id: String,
     downloaded_bytes: u64,
     total_bytes: u64,
@@ -329,6 +341,30 @@ struct RuntimeDependencyDto {
 struct RuntimeRepairResultDto {
     id: String,
     message: String,
+    health: RuntimeHealthDto,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeComponentDto {
+    id: String,
+    status: String,
+    kind: String,
+    install_dir: String,
+    download_url: Option<String>,
+    download_size_bytes: u64,
+    installed_size_bytes: u64,
+    required_files: Vec<String>,
+    detail: Option<String>,
+    installable: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeComponentActionResultDto {
+    id: String,
+    message: String,
+    components: Vec<RuntimeComponentDto>,
     health: RuntimeHealthDto,
 }
 
@@ -1630,6 +1666,514 @@ fn format_file_size(bytes: u64) -> String {
     }
 }
 
+#[derive(Clone)]
+enum RuntimeComponentSourceKind {
+    SingleFile { file_name: &'static str },
+    ZipByFileName,
+}
+
+const YT_DLP_WINDOWS_REQUIRED_FILES: &[&str] = &["yt-dlp.exe"];
+const YT_DLP_UNIX_REQUIRED_FILES: &[&str] = &["yt-dlp"];
+
+#[derive(Clone)]
+struct RuntimeComponentSpec {
+    id: &'static str,
+    kind: &'static str,
+    env_url: &'static str,
+    default_url: String,
+    download_size_bytes: u64,
+    min_download_bytes: usize,
+    required_files: &'static [&'static str],
+    source_kind: RuntimeComponentSourceKind,
+}
+
+fn runtime_component_specs() -> Vec<RuntimeComponentSpec> {
+    let mut specs = Vec::new();
+
+    if cfg!(windows) {
+        specs.push(RuntimeComponentSpec {
+            id: "whisper",
+            kind: "required",
+            env_url: "AUDRAFLOW_COMPONENT_WHISPER_URL",
+            default_url: github_release_asset_url(&format!(
+                "AudraFlow_{}_windows_whisper-runtime.zip",
+                env!("CARGO_PKG_VERSION")
+            )),
+            download_size_bytes: 28 * 1024 * 1024,
+            min_download_bytes: 512 * 1024,
+            required_files: &[
+                "whisper-cli.exe",
+                "whisper.dll",
+                "ggml.dll",
+                "ggml-base.dll",
+                "ggml-cpu.dll",
+            ],
+            source_kind: RuntimeComponentSourceKind::ZipByFileName,
+        });
+        specs.push(RuntimeComponentSpec {
+            id: "ffmpeg",
+            kind: "required",
+            env_url: "AUDRAFLOW_COMPONENT_FFMPEG_URL",
+            default_url: github_release_asset_url(&format!(
+                "AudraFlow_{}_windows_ffmpeg-runtime.zip",
+                env!("CARGO_PKG_VERSION")
+            )),
+            download_size_bytes: 95 * 1024 * 1024,
+            min_download_bytes: 1024 * 1024,
+            required_files: &["ffmpeg.exe", "ffprobe.exe"],
+            source_kind: RuntimeComponentSourceKind::ZipByFileName,
+        });
+    }
+
+    specs.push(RuntimeComponentSpec {
+        id: "yt-dlp",
+        kind: "optional",
+        env_url: "AUDRAFLOW_COMPONENT_YT_DLP_URL",
+        default_url: yt_dlp_download_url().into(),
+        download_size_bytes: 18 * 1024 * 1024,
+        min_download_bytes: 1024 * 1024,
+        required_files: yt_dlp_component_required_files(),
+        source_kind: RuntimeComponentSourceKind::SingleFile {
+            file_name: yt_dlp_binary_name(),
+        },
+    });
+
+    specs
+}
+
+fn yt_dlp_component_required_files() -> &'static [&'static str] {
+    if cfg!(windows) {
+        YT_DLP_WINDOWS_REQUIRED_FILES
+    } else {
+        YT_DLP_UNIX_REQUIRED_FILES
+    }
+}
+
+fn github_release_asset_url(asset_name: &str) -> String {
+    let tag = std::env::var("AUDRAFLOW_COMPONENT_RELEASE_TAG")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| format!("v{}", env!("CARGO_PKG_VERSION")));
+    let base = std::env::var("AUDRAFLOW_COMPONENT_BASE_URL")
+        .ok()
+        .map(|value| value.trim().trim_end_matches('/').to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| format!("https://github.com/500wango/audraflow/releases/download/{tag}"));
+    format!("{base}/{asset_name}")
+}
+
+fn runtime_component_download_url(spec: &RuntimeComponentSpec) -> Option<String> {
+    std::env::var(spec.env_url)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .or_else(|| Some(spec.default_url.clone()))
+}
+
+fn runtime_app_data_dir() -> PathBuf {
+    if let Some(path) = std::env::var_os("AUDRAFLOW_APP_DATA_DIR")
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+    {
+        return path;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return std::env::var_os("APPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("com.audraflow.app");
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share"))
+            })
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("com.audraflow.app")
+    }
+}
+
+fn runtime_components_root() -> PathBuf {
+    runtime_app_data_dir().join("runtime").join("components")
+}
+
+fn runtime_component_dir(component_id: &str) -> PathBuf {
+    runtime_components_root().join(component_id)
+}
+
+fn runtime_component_bin_dir(component_id: &str) -> PathBuf {
+    runtime_component_dir(component_id).join("bin")
+}
+
+fn runtime_components_root_for_app(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("runtime")
+        .join("components"))
+}
+
+fn runtime_component_dir_for_app(
+    app_handle: &tauri::AppHandle,
+    component_id: &str,
+) -> Result<PathBuf, String> {
+    Ok(runtime_components_root_for_app(app_handle)?.join(component_id))
+}
+
+fn find_runtime_component_tool(component_id: &str, file_name: &str) -> Option<PathBuf> {
+    let path = runtime_component_bin_dir(component_id).join(file_name);
+    path.is_file().then_some(path)
+}
+
+fn find_runtime_component_spec(id: &str) -> Option<RuntimeComponentSpec> {
+    let normalized = normalize_runtime_component_id(id)?;
+    runtime_component_specs()
+        .into_iter()
+        .find(|spec| spec.id == normalized)
+}
+
+fn normalize_runtime_component_id(id: &str) -> Option<&'static str> {
+    match id.trim() {
+        "whisper" | "whisperCli" | "whisper-cli" => Some("whisper"),
+        "ffmpeg" | "ffprobe" => Some("ffmpeg"),
+        "ytDlp" | "yt-dlp" | "ytdlp" => Some("yt-dlp"),
+        _ => None,
+    }
+}
+
+fn runtime_component_status(
+    app_handle: &tauri::AppHandle,
+    spec: &RuntimeComponentSpec,
+) -> RuntimeComponentDto {
+    let component_dir = runtime_component_dir_for_app(app_handle, spec.id)
+        .unwrap_or_else(|_| runtime_component_dir(spec.id));
+    let bin_dir = component_dir.join("bin");
+    let missing = spec
+        .required_files
+        .iter()
+        .filter(|file| !bin_dir.join(file).is_file())
+        .copied()
+        .collect::<Vec<_>>();
+    let installed_size_bytes = directory_size_bytes(&component_dir).unwrap_or(0);
+    let download_url = runtime_component_download_url(spec);
+    let (status, detail) = if missing.is_empty() {
+        (
+            "ready".to_string(),
+            Some(format!("Installed in {}", component_dir.display())),
+        )
+    } else {
+        (
+            "missing".to_string(),
+            Some(format!("Missing file(s): {}", missing.join(", "))),
+        )
+    };
+
+    RuntimeComponentDto {
+        id: spec.id.into(),
+        status,
+        kind: spec.kind.into(),
+        install_dir: component_dir.to_string_lossy().into_owned(),
+        download_url: download_url.clone(),
+        download_size_bytes: spec.download_size_bytes,
+        installed_size_bytes,
+        required_files: spec.required_files.iter().map(|file| (*file).into()).collect(),
+        detail,
+        installable: download_url.is_some(),
+    }
+}
+
+fn runtime_components(app_handle: &tauri::AppHandle) -> Vec<RuntimeComponentDto> {
+    runtime_component_specs()
+        .iter()
+        .map(|spec| runtime_component_status(app_handle, spec))
+        .collect()
+}
+
+fn emit_runtime_component_progress(
+    app_handle: &tauri::AppHandle,
+    id: &str,
+    downloaded_bytes: u64,
+    total_bytes: u64,
+    message: impl Into<String>,
+) {
+    let progress_pct = if total_bytes > 0 {
+        downloaded_bytes as f64 / total_bytes as f64 * 100.0
+    } else {
+        0.0
+    };
+    let _ = app_handle.emit(
+        "runtime://component-download-progress",
+        RuntimeComponentProgressEvent {
+            id: id.to_string(),
+            downloaded_bytes,
+            total_bytes,
+            progress_pct: progress_pct.clamp(0.0, 100.0),
+            message: message.into(),
+        },
+    );
+}
+
+async fn install_runtime_component_by_id(
+    app_handle: &tauri::AppHandle,
+    id: &str,
+) -> Result<String, String> {
+    let spec = find_runtime_component_spec(id)
+        .ok_or_else(|| format!("Unknown runtime component: {id}"))?;
+    install_runtime_component(app_handle, &spec).await
+}
+
+async fn install_runtime_component(
+    app_handle: &tauri::AppHandle,
+    spec: &RuntimeComponentSpec,
+) -> Result<String, String> {
+    let url = runtime_component_download_url(spec)
+        .ok_or_else(|| format!("No download URL is configured for runtime component: {}", spec.id))?;
+    let parsed = reqwest::Url::parse(&url)
+        .map_err(|e| format!("Invalid runtime component URL for {}: {e}", spec.id))?;
+    if parsed.scheme() != "http" && parsed.scheme() != "https" {
+        return Err("Only http and https runtime component URLs are supported.".into());
+    }
+
+    let root = runtime_components_root_for_app(app_handle)?;
+    let component_dir = root.join(spec.id);
+    let staging_dir = root.join(format!(".{}.installing", spec.id));
+    let staging_bin_dir = staging_dir.join("bin");
+    let downloads_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("runtime")
+        .join("downloads");
+    let download_path = downloads_dir.join(format!("{}.download", spec.id));
+
+    let _ = tokio::fs::remove_dir_all(&staging_dir).await;
+    tokio::fs::create_dir_all(&staging_bin_dir)
+        .await
+        .map_err(|e| format!("Failed to create runtime component directory: {e}"))?;
+
+    emit_runtime_component_progress(app_handle, spec.id, 0, spec.download_size_bytes, "Starting download");
+    download_url_to_path_with_progress(
+        app_handle,
+        spec.id,
+        &url,
+        &download_path,
+        spec.min_download_bytes,
+    )
+    .await?;
+
+    install_component_payload(spec, &download_path, &staging_bin_dir)?;
+    verify_component_files(spec, &staging_bin_dir)?;
+    for file_name in spec.required_files {
+        mark_executable(&staging_bin_dir.join(file_name))?;
+    }
+
+    let _ = tokio::fs::remove_dir_all(&component_dir).await;
+    tokio::fs::rename(&staging_dir, &component_dir)
+        .await
+        .map_err(|e| format!("Failed to activate runtime component: {e}"))?;
+    let _ = tokio::fs::remove_file(&download_path).await;
+    emit_runtime_component_progress(
+        app_handle,
+        spec.id,
+        spec.download_size_bytes,
+        spec.download_size_bytes,
+        "Installed",
+    );
+
+    Ok(format!(
+        "{} runtime component installed in {}.",
+        spec.id,
+        component_dir.display()
+    ))
+}
+
+async fn delete_runtime_component_by_id(
+    app_handle: &tauri::AppHandle,
+    id: &str,
+) -> Result<String, String> {
+    let spec = find_runtime_component_spec(id)
+        .ok_or_else(|| format!("Unknown runtime component: {id}"))?;
+    let component_dir = runtime_component_dir_for_app(app_handle, spec.id)?;
+    let before = directory_size_bytes(&component_dir).unwrap_or(0);
+    let _ = tokio::fs::remove_dir_all(&component_dir).await;
+    Ok(format!(
+        "{} runtime component removed. Freed {}.",
+        spec.id,
+        format_file_size(before)
+    ))
+}
+
+async fn download_url_to_path_with_progress(
+    app_handle: &tauri::AppHandle,
+    id: &str,
+    url: &str,
+    destination: &Path,
+    min_bytes: usize,
+) -> Result<(), String> {
+    if let Some(parent) = destination.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|e| format!("Failed to create runtime download directory: {e}"))?;
+    }
+
+    let tmp_path = destination.with_extension("tmp");
+    let _ = tokio::fs::remove_file(&tmp_path).await;
+    let response = reqwest::get(url)
+        .await
+        .map_err(|e| format!("Failed to download {url}: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Runtime component download failed with {}", response.status()));
+    }
+
+    let total = response.content_length().unwrap_or(0);
+    let mut stream = response.bytes_stream();
+    let mut file = tokio::fs::File::create(&tmp_path)
+        .await
+        .map_err(|e| format!("Failed to create runtime component download file: {e}"))?;
+    let mut downloaded = 0_u64;
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("Failed while downloading runtime component: {e}"))?;
+        file.write_all(&chunk)
+            .await
+            .map_err(|e| format!("Failed to write runtime component download: {e}"))?;
+        downloaded = downloaded.saturating_add(chunk.len() as u64);
+        emit_runtime_component_progress(
+            app_handle,
+            id,
+            downloaded,
+            total,
+            format!(
+                "Downloaded {} / {}",
+                format_file_size(downloaded),
+                if total > 0 {
+                    format_file_size(total)
+                } else {
+                    "unknown".into()
+                }
+            ),
+        );
+    }
+    file.flush()
+        .await
+        .map_err(|e| format!("Failed to flush runtime component download: {e}"))?;
+    drop(file);
+
+    let size = tokio::fs::metadata(&tmp_path)
+        .await
+        .map_err(|e| format!("Failed to inspect runtime component download: {e}"))?
+        .len();
+    if size < min_bytes as u64 {
+        let _ = tokio::fs::remove_file(&tmp_path).await;
+        return Err(format!("Runtime component download is too small: {size} bytes"));
+    }
+    if file_looks_like_html(&tmp_path)? {
+        let _ = tokio::fs::remove_file(&tmp_path).await;
+        return Err("Downloaded HTML instead of a runtime component file.".into());
+    }
+
+    let _ = tokio::fs::remove_file(destination).await;
+    tokio::fs::rename(&tmp_path, destination)
+        .await
+        .map_err(|e| format!("Failed to save runtime component download: {e}"))
+}
+
+fn file_looks_like_html(path: &Path) -> Result<bool, String> {
+    use std::io::Read;
+
+    let mut file = std::fs::File::open(path)
+        .map_err(|e| format!("Failed to inspect downloaded runtime component: {e}"))?;
+    let mut bytes = [0_u8; 512];
+    let len = file
+        .read(&mut bytes)
+        .map_err(|e| format!("Failed to inspect downloaded runtime component: {e}"))?;
+    Ok(looks_like_html(&bytes[..len]))
+}
+
+fn install_component_payload(
+    spec: &RuntimeComponentSpec,
+    payload_path: &Path,
+    staging_bin_dir: &Path,
+) -> Result<(), String> {
+    match &spec.source_kind {
+        RuntimeComponentSourceKind::SingleFile { file_name } => {
+            std::fs::copy(payload_path, staging_bin_dir.join(file_name))
+                .map_err(|e| format!("Failed to install runtime component file: {e}"))?;
+            Ok(())
+        }
+        RuntimeComponentSourceKind::ZipByFileName => {
+            extract_required_files_from_zip(payload_path, staging_bin_dir, spec.required_files)
+        }
+    }
+}
+
+fn extract_required_files_from_zip(
+    archive_path: &Path,
+    destination_dir: &Path,
+    required_files: &[&str],
+) -> Result<(), String> {
+    let file = std::fs::File::open(archive_path)
+        .map_err(|e| format!("Failed to open runtime component archive: {e}"))?;
+    let mut archive = zip::ZipArchive::new(file)
+        .map_err(|e| format!("Failed to read runtime component archive: {e}"))?;
+
+    for index in 0..archive.len() {
+        let mut entry = archive
+            .by_index(index)
+            .map_err(|e| format!("Failed to read runtime component archive entry: {e}"))?;
+        if entry.is_dir() {
+            continue;
+        }
+        let Some(entry_name) = zip_entry_basename(entry.name()) else {
+            continue;
+        };
+        let Some(required_name) = required_files
+            .iter()
+            .find(|required| required.eq_ignore_ascii_case(&entry_name))
+        else {
+            continue;
+        };
+        let out_path = destination_dir.join(*required_name);
+        let mut output = std::fs::File::create(&out_path)
+            .map_err(|e| format!("Failed to create runtime component file: {e}"))?;
+        std::io::copy(&mut entry, &mut output)
+            .map_err(|e| format!("Failed to extract runtime component file: {e}"))?;
+    }
+
+    Ok(())
+}
+
+fn zip_entry_basename(name: &str) -> Option<String> {
+    name.replace('\\', "/")
+        .rsplit('/')
+        .find(|part| !part.is_empty())
+        .map(str::to_string)
+}
+
+fn verify_component_files(spec: &RuntimeComponentSpec, bin_dir: &Path) -> Result<(), String> {
+    let missing = spec
+        .required_files
+        .iter()
+        .filter(|file| !bin_dir.join(file).is_file())
+        .copied()
+        .collect::<Vec<_>>();
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Runtime component {} is missing required file(s): {}",
+            spec.id,
+            missing.join(", ")
+        ))
+    }
+}
+
 fn detect_nvidia_device() -> Option<(String, f64, String, String)> {
     let output = std::process::Command::new("nvidia-smi")
         .args([
@@ -1778,7 +2322,13 @@ fn runtime_dependency_sort_key(id: &str) -> u8 {
 fn runtime_dependency_repairable(id: &str) -> bool {
     matches!(
         id,
-        "defaultWhisperModel" | "ytDlp" | "sensevoicePython" | "demucs"
+        "defaultWhisperModel"
+            | "whisperCli"
+            | "ffmpeg"
+            | "ffprobe"
+            | "ytDlp"
+            | "sensevoicePython"
+            | "demucs"
     )
 }
 
@@ -1919,7 +2469,7 @@ async fn probe_sensevoice_python() -> RuntimeDependencyDto {
     };
 
     let script = "import funasr, modelscope; print('funasr/modelscope ready')";
-    let mut args = invocation.base_args;
+    let mut args = invocation.base_args.clone();
     args.push("-c".into());
     args.push(script.into());
     let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
@@ -2004,7 +2554,9 @@ async fn repair_runtime_dependency(
     let normalized = id.trim();
     let message = match normalized {
         "defaultWhisperModel" => repair_default_whisper_model(&app_handle).await?,
-        "ytDlp" => repair_yt_dlp().await?,
+        "whisperCli" => install_runtime_component_by_id(&app_handle, "whisper").await?,
+        "ffmpeg" | "ffprobe" => install_runtime_component_by_id(&app_handle, "ffmpeg").await?,
+        "ytDlp" => install_runtime_component_by_id(&app_handle, "yt-dlp").await?,
         "sensevoicePython" => {
             repair_python_packages(
                 "SenseVoice Python packages",
@@ -2103,69 +2655,6 @@ async fn repair_default_whisper_model(app_handle: &tauri::AppHandle) -> Result<S
     Ok("Default Whisper model was downloaded and selected.".into())
 }
 
-async fn repair_yt_dlp() -> Result<String, String> {
-    let destination = managed_tool_path(yt_dlp_binary_name());
-    download_binary_to_path(yt_dlp_download_url(), &destination, 1024 * 1024).await?;
-    mark_executable(&destination)?;
-    let output = tokio::process::Command::new(&destination)
-        .arg("--version")
-        .output()
-        .await
-        .map_err(|e| format!("Downloaded yt-dlp could not be started: {e}"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "Downloaded yt-dlp failed its version check: {}",
-            short_output(&output.stderr)
-                .or_else(|| short_output(&output.stdout))
-                .unwrap_or_else(|| "No output.".into())
-        ));
-    }
-
-    Ok(format!("yt-dlp is ready: {}", destination.display()))
-}
-
-async fn download_binary_to_path(
-    url: &str,
-    destination: &Path,
-    min_bytes: usize,
-) -> Result<(), String> {
-    if let Some(parent) = destination.parent() {
-        tokio::fs::create_dir_all(parent)
-            .await
-            .map_err(|e| format!("Failed to create download directory: {e}"))?;
-    }
-
-    let response = reqwest::get(url)
-        .await
-        .map_err(|e| format!("Failed to download {url}: {e}"))?;
-    if !response.status().is_success() {
-        return Err(format!("Download failed with {}", response.status()));
-    }
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| format!("Failed to read download response: {e}"))?;
-    if bytes.len() < min_bytes {
-        return Err(format!(
-            "Downloaded file is too small: {} bytes",
-            bytes.len()
-        ));
-    }
-    if looks_like_html(&bytes) {
-        return Err("Downloaded HTML instead of a binary file.".into());
-    }
-
-    let tmp_path = destination.with_extension("tmp");
-    let _ = tokio::fs::remove_file(&tmp_path).await;
-    tokio::fs::write(&tmp_path, &bytes)
-        .await
-        .map_err(|e| format!("Failed to write downloaded file: {e}"))?;
-    let _ = tokio::fs::remove_file(destination).await;
-    tokio::fs::rename(&tmp_path, destination)
-        .await
-        .map_err(|e| format!("Failed to install downloaded file: {e}"))
-}
-
 fn looks_like_html(bytes: &[u8]) -> bool {
     let sample_len = bytes.len().min(512);
     let sample = String::from_utf8_lossy(&bytes[..sample_len])
@@ -2197,40 +2686,17 @@ async fn repair_python_packages(
     packages: &[&str],
     timeout: Duration,
 ) -> Result<String, String> {
-    let invocation = resolve_python_invocation().ok_or_else(|| {
-        format!(
-            "{label} repair requires Python 3. Install Python 3 first or set AUDRAFLOW_PYTHON_BIN."
-        )
-    })?;
-    let mut args = invocation.base_args;
+    let invocation = ensure_managed_python_venv(label).await?;
+    let mut args = invocation.base_args.clone();
     args.extend([
         "-m".into(),
         "pip".into(),
         "install".into(),
-        "--user".into(),
         "-U".into(),
     ]);
     args.extend(packages.iter().map(|package| (*package).to_string()));
 
-    let output = tokio::time::timeout(
-        timeout,
-        tokio::process::Command::new(&invocation.program)
-            .args(&args)
-            .output(),
-    )
-    .await
-    .map_err(|_| {
-        format!(
-            "{label} repair timed out after {} seconds.",
-            timeout.as_secs()
-        )
-    })?
-    .map_err(|e| {
-        format!(
-            "Failed to start Python package repair at {}: {e}",
-            invocation.display
-        )
-    })?;
+    let output = run_runtime_invocation_with_timeout(&invocation, &args, timeout, label).await?;
 
     if !output.status.success() {
         return Err(format!(
@@ -2241,7 +2707,125 @@ async fn repair_python_packages(
         ));
     }
 
-    Ok(format!("{label} installed or updated."))
+    Ok(format!(
+        "{label} installed or updated in AudraFlow's isolated Python environment."
+    ))
+}
+
+async fn ensure_managed_python_venv(label: &str) -> Result<RuntimeInvocation, String> {
+    if let Some(invocation) = find_managed_python_invocation() {
+        return Ok(invocation);
+    }
+
+    let base = resolve_system_python_invocation().ok_or_else(|| {
+        format!(
+            "{label} repair requires Python 3. Install Python 3 first or set AUDRAFLOW_PYTHON_BIN."
+        )
+    })?;
+    let venv_dir = runtime_component_dir("python-venv");
+    if let Some(parent) = venv_dir.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|e| format!("Failed to create Python runtime directory: {e}"))?;
+    }
+
+    let mut create_args = base.base_args.clone();
+    create_args.extend([
+        "-m".into(),
+        "venv".into(),
+        venv_dir.to_string_lossy().into_owned(),
+    ]);
+    let output = run_runtime_invocation_with_timeout(
+        &base,
+        &create_args,
+        Duration::from_secs(5 * 60),
+        "Python venv creation",
+    )
+    .await?;
+    if !output.status.success() {
+        return Err(format!(
+            "Failed to create AudraFlow Python environment: {}",
+            short_output(&output.stderr)
+                .or_else(|| short_output(&output.stdout))
+                .unwrap_or_else(|| "No output.".into())
+        ));
+    }
+
+    let invocation = find_managed_python_invocation().ok_or_else(|| {
+        format!(
+            "Python venv was created but the interpreter was not found at {}",
+            managed_python_bin().display()
+        )
+    })?;
+    let bootstrap_args = vec![
+        "-m".into(),
+        "pip".into(),
+        "install".into(),
+        "-U".into(),
+        "pip".into(),
+        "setuptools".into(),
+        "wheel".into(),
+    ];
+    let output = run_runtime_invocation_with_timeout(
+        &invocation,
+        &bootstrap_args,
+        Duration::from_secs(10 * 60),
+        "Python package bootstrap",
+    )
+    .await?;
+    if !output.status.success() {
+        return Err(format!(
+            "Failed to bootstrap AudraFlow Python environment: {}",
+            short_output(&output.stderr)
+                .or_else(|| short_output(&output.stdout))
+                .unwrap_or_else(|| "No output.".into())
+        ));
+    }
+
+    Ok(invocation)
+}
+
+fn resolve_system_python_invocation() -> Option<RuntimeInvocation> {
+    if let Some(path) = command_env_override("AUDRAFLOW_PYTHON_BIN")
+        .or_else(|| command_env_override("FT_PYTHON_BIN"))
+    {
+        return Some(RuntimeInvocation {
+            display: path.to_string_lossy().into_owned(),
+            program: path,
+            base_args: vec![],
+        });
+    }
+
+    ["python3", "python", "py"].iter().find_map(|name| {
+        find_system_command(name).map(|program| {
+            let mut base_args = Vec::new();
+            if is_py_launcher(&program) {
+                base_args.push("-3".into());
+            }
+            RuntimeInvocation {
+                display: command_display_path(&program),
+                program,
+                base_args,
+            }
+        })
+    })
+}
+
+async fn run_runtime_invocation_with_timeout(
+    invocation: &RuntimeInvocation,
+    args: &[String],
+    timeout: Duration,
+    label: &str,
+) -> Result<std::process::Output, String> {
+    tokio::time::timeout(
+        timeout,
+        tokio::process::Command::new(&invocation.program)
+            .args(args)
+            .output(),
+    )
+    .await
+    .map_err(|_| format!("{label} timed out after {} seconds.", timeout.as_secs()))?
+    .map_err(|e| format!("Failed to start {label} at {}: {e}", invocation.display))
 }
 
 fn preflight_url_import_dependencies(url: &str, skip_start_seconds: f64) -> Result<(), String> {
@@ -2255,7 +2839,7 @@ fn preflight_url_import_dependencies(url: &str, skip_start_seconds: f64) -> Resu
         ensure_runtime_command_available(
             ffmpeg_command(),
             "FFmpeg",
-            "FFmpeg is required when skipping the start of a direct media link. Reinstall AudraFlow or set AUDRAFLOW_FFMPEG_BIN.",
+            "FFmpeg is required when skipping the start of a direct media link. Download the FFmpeg runtime component in Settings or set AUDRAFLOW_FFMPEG_BIN.",
         )?;
     }
 
@@ -2263,7 +2847,7 @@ fn preflight_url_import_dependencies(url: &str, skip_start_seconds: f64) -> Resu
         ensure_runtime_command_available(
             yt_dlp_command(),
             "yt-dlp",
-            "This looks like a platform link. Reinstall AudraFlow or set AUDRAFLOW_YT_DLP_BIN before importing it.",
+            "This looks like a platform link. Download the yt-dlp runtime component in Settings or set AUDRAFLOW_YT_DLP_BIN before importing it.",
         )?;
     }
 
@@ -2277,12 +2861,12 @@ fn preflight_transcription_dependencies(
     ensure_runtime_command_available(
         ffmpeg_command(),
         "FFmpeg",
-        "FFmpeg is required for local media decoding. Reinstall AudraFlow or set AUDRAFLOW_FFMPEG_BIN.",
+        "FFmpeg is required for local media decoding. Download the FFmpeg runtime component in Settings or set AUDRAFLOW_FFMPEG_BIN.",
     )?;
     ensure_runtime_command_available(
         ffprobe_command(),
         "FFprobe",
-        "FFprobe is required for media metadata detection. Reinstall AudraFlow or set AUDRAFLOW_FFPROBE_BIN.",
+        "FFprobe is required for media metadata detection. Download the FFmpeg runtime component in Settings or set AUDRAFLOW_FFPROBE_BIN.",
     )?;
 
     match asr_engine {
@@ -2291,7 +2875,7 @@ fn preflight_transcription_dependencies(
             &["--help"],
             Duration::from_secs(8),
             "Whisper CLI",
-            "Whisper transcription requires a runnable whisper-cli plus its runtime DLLs. Reinstall AudraFlow or set AUDRAFLOW_WHISPER_CLI.",
+            "Whisper transcription requires a runnable whisper-cli plus its runtime DLLs. Download the Whisper runtime component in Settings or set AUDRAFLOW_WHISPER_CLI.",
         ),
         "sensevoice" => ensure_sensevoice_python_available(),
         "funasr" => {
@@ -2395,7 +2979,7 @@ fn ensure_runtime_command_startable(
 
 fn ensure_sensevoice_python_available() -> Result<(), String> {
     let invocation = resolve_python_invocation().ok_or_else(|| {
-        "SenseVoice requires the bundled Python runtime. Reinstall AudraFlow or set AUDRAFLOW_PYTHON_BIN.".to_string()
+        "SenseVoice requires Python. Use Settings to create AudraFlow's isolated Python environment, install Python 3, or set AUDRAFLOW_PYTHON_BIN.".to_string()
     })?;
     let script = r#"import importlib.util, sys
 missing = [name for name in ("funasr", "modelscope") if importlib.util.find_spec(name) is None]
@@ -2404,14 +2988,14 @@ if missing:
     sys.exit(1)
 print("sensevoice dependencies ready")
 "#;
-    let mut args = invocation.base_args;
+    let mut args = invocation.base_args.clone();
     args.push("-c".into());
     args.push(script.into());
     let output =
         run_runtime_probe_with_timeout(&invocation.program, &args, Duration::from_secs(8))
             .map_err(|error| {
                 format!(
-                    "SenseVoice Python dependency check failed at {}: {error}. Reinstall AudraFlow or repair the bundled runtime.",
+                    "SenseVoice Python dependency check failed at {}: {error}. Use Settings to repair AudraFlow's isolated Python environment.",
                     invocation.display
                 )
             })?;
@@ -2420,7 +3004,7 @@ print("sensevoice dependencies ready")
     }
 
     Err(format!(
-        "SenseVoice requires Python packages funasr and modelscope. {} Reinstall AudraFlow or repair the bundled runtime.",
+        "SenseVoice requires Python packages funasr and modelscope. {} Use Settings to repair AudraFlow's isolated Python environment.",
         short_output(&output.stderr)
             .or_else(|| short_output(&output.stdout))
             .unwrap_or_else(|| "Dependency check failed.".into())
@@ -2502,7 +3086,7 @@ fn is_probable_direct_media_url(parsed: &reqwest::Url) -> bool {
         .is_some_and(supported_media_extension)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct RuntimeInvocation {
     program: PathBuf,
     base_args: Vec<String>,
@@ -2528,6 +3112,10 @@ fn resolve_python_invocation() -> Option<RuntimeInvocation> {
         });
     }
 
+    if let Some(invocation) = find_managed_python_invocation() {
+        return Some(invocation);
+    }
+
     if let Some(invocation) = find_bundled_python_invocation() {
         return Some(invocation);
     }
@@ -2545,6 +3133,27 @@ fn resolve_python_invocation() -> Option<RuntimeInvocation> {
             }
         })
     })
+}
+
+fn find_managed_python_invocation() -> Option<RuntimeInvocation> {
+    let python = managed_python_bin();
+    if python.is_file() {
+        return Some(RuntimeInvocation {
+            display: python.to_string_lossy().into_owned(),
+            program: python,
+            base_args: vec![],
+        });
+    }
+    None
+}
+
+fn managed_python_bin() -> PathBuf {
+    let venv_dir = runtime_component_dir("python-venv");
+    if cfg!(windows) {
+        venv_dir.join("Scripts").join("python.exe")
+    } else {
+        venv_dir.join("bin").join("python")
+    }
 }
 
 fn find_bundled_python_invocation() -> Option<RuntimeInvocation> {
@@ -2578,6 +3187,13 @@ fn resolve_demucs_invocation_for_health() -> Option<RuntimeInvocation> {
             program: path,
             base_args: vec![],
         });
+    }
+
+    if let Some(mut invocation) = find_managed_python_invocation() {
+        invocation.display = format!("{} -m demucs", invocation.display);
+        invocation.base_args.push("-m".into());
+        invocation.base_args.push("demucs".into());
+        return Some(invocation);
     }
 
     if let Some(mut invocation) = find_bundled_python_invocation() {
@@ -2703,6 +3319,7 @@ fn ensure_runtime_file(path: &Path, label: &str) -> Result<(), String> {
 fn whisper_cli_command() -> PathBuf {
     command_env_override("AUDRAFLOW_WHISPER_CLI")
         .or_else(|| command_env_override("FT_WHISPER_CLI"))
+        .or_else(|| find_runtime_component_tool("whisper", whisper_cli_binary_name()))
         .or_else(|| find_bundled_command(whisper_cli_binary_name()))
         .or_else(|| find_dev_or_portable_tool(whisper_cli_binary_name()))
         .or_else(|| find_system_command(whisper_cli_binary_name()))
@@ -2712,6 +3329,7 @@ fn whisper_cli_command() -> PathBuf {
 fn funasr_cli_command() -> PathBuf {
     command_env_override("AUDRAFLOW_FUNASR_CLI")
         .or_else(|| command_env_override("FT_FUNASR_CLI"))
+        .or_else(|| find_runtime_component_tool("funasr", funasr_cli_binary_name()))
         .or_else(|| find_bundled_command(funasr_cli_binary_name()))
         .or_else(|| find_dev_or_portable_tool(funasr_cli_binary_name()))
         .or_else(|| find_system_command(funasr_cli_binary_name()))
@@ -3113,6 +3731,10 @@ fn yt_dlp_command() -> PathBuf {
         return path;
     }
 
+    if let Some(path) = find_runtime_component_tool("yt-dlp", yt_dlp_binary_name()) {
+        return path;
+    }
+
     if let Some(path) =
         find_bundled_command("yt-dlp").or_else(|| find_dev_or_portable_tool(yt_dlp_binary_name()))
     {
@@ -3178,6 +3800,7 @@ fn apply_yt_dlp_youtube_compat(command: &mut tokio::process::Command) {
 fn ffmpeg_command() -> PathBuf {
     command_env_override("AUDRAFLOW_FFMPEG_BIN")
         .or_else(|| command_env_override("FT_FFMPEG_BIN"))
+        .or_else(|| find_runtime_component_tool("ffmpeg", tool_binary_name("ffmpeg")))
         .or_else(|| find_bundled_command("ffmpeg"))
         .or_else(|| find_dev_or_portable_tool(tool_binary_name("ffmpeg")))
         .unwrap_or_else(|| PathBuf::from("ffmpeg"))
@@ -3186,6 +3809,7 @@ fn ffmpeg_command() -> PathBuf {
 fn ffprobe_command() -> PathBuf {
     command_env_override("AUDRAFLOW_FFPROBE_BIN")
         .or_else(|| command_env_override("FT_FFPROBE_BIN"))
+        .or_else(|| find_runtime_component_tool("ffmpeg", tool_binary_name("ffprobe")))
         .or_else(|| find_bundled_command("ffprobe"))
         .or_else(|| find_dev_or_portable_tool(tool_binary_name("ffprobe")))
         .unwrap_or_else(|| PathBuf::from("ffprobe"))
@@ -3392,6 +4016,9 @@ fn start_orchestrator(app_handle: &tauri::AppHandle) {
     if let Ok(resource_dir) = app_handle.path().resource_dir() {
         command.env("AUDRAFLOW_RESOURCE_DIR", resource_dir);
     }
+    if let Ok(app_data_dir) = app_handle.path().app_data_dir() {
+        command.env("AUDRAFLOW_APP_DATA_DIR", app_data_dir);
+    }
 
     #[cfg(target_os = "windows")]
     {
@@ -3459,6 +4086,9 @@ fn start_orchestrator(app_handle: &tauri::AppHandle) {
         .stderr(std::process::Stdio::null());
     if let Ok(resource_dir) = app_handle.path().resource_dir() {
         command.env("AUDRAFLOW_RESOURCE_DIR", resource_dir);
+    }
+    if let Ok(app_data_dir) = app_handle.path().app_data_dir() {
+        command.env("AUDRAFLOW_APP_DATA_DIR", app_data_dir);
     }
 
     match command.spawn() {
@@ -3897,7 +4527,7 @@ async fn download_platform_media(
         .spawn()
         .map_err(|e| {
             format!(
-                "yt-dlp is required for platform links but was not found: {e}. Reinstall AudraFlow or set AUDRAFLOW_YT_DLP_BIN to its executable path."
+                "yt-dlp is required for platform links but was not found: {e}. Download the yt-dlp runtime component in Settings or set AUDRAFLOW_YT_DLP_BIN to its executable path."
             )
         })?;
 
@@ -4434,6 +5064,9 @@ pub fn run() {
             cmd_get_diagnostics_preview,
             cmd_get_device_diagnostics,
             cmd_get_runtime_health,
+            cmd_get_runtime_components,
+            cmd_download_runtime_component,
+            cmd_delete_runtime_component,
             cmd_repair_runtime_dependency,
             cmd_export_diagnostics_package,
             cmd_export_transcript,
@@ -5372,6 +6005,45 @@ async fn cmd_get_runtime_health(app_handle: tauri::AppHandle) -> Result<RuntimeH
 }
 
 #[tauri::command]
+async fn cmd_get_runtime_components(
+    app_handle: tauri::AppHandle,
+) -> Result<Vec<RuntimeComponentDto>, String> {
+    Ok(runtime_components(&app_handle))
+}
+
+#[tauri::command]
+async fn cmd_download_runtime_component(
+    app_handle: tauri::AppHandle,
+    id: String,
+) -> Result<RuntimeComponentActionResultDto, String> {
+    let normalized = normalize_runtime_component_id(&id)
+        .ok_or_else(|| format!("Unknown runtime component: {id}"))?;
+    let message = install_runtime_component_by_id(&app_handle, normalized).await?;
+    Ok(RuntimeComponentActionResultDto {
+        id: normalized.into(),
+        message,
+        components: runtime_components(&app_handle),
+        health: runtime_health(&app_handle).await,
+    })
+}
+
+#[tauri::command]
+async fn cmd_delete_runtime_component(
+    app_handle: tauri::AppHandle,
+    id: String,
+) -> Result<RuntimeComponentActionResultDto, String> {
+    let normalized = normalize_runtime_component_id(&id)
+        .ok_or_else(|| format!("Unknown runtime component: {id}"))?;
+    let message = delete_runtime_component_by_id(&app_handle, normalized).await?;
+    Ok(RuntimeComponentActionResultDto {
+        id: normalized.into(),
+        message,
+        components: runtime_components(&app_handle),
+        health: runtime_health(&app_handle).await,
+    })
+}
+
+#[tauri::command]
 async fn cmd_repair_runtime_dependency(
     app_handle: tauri::AppHandle,
     id: String,
@@ -6074,6 +6746,25 @@ mod tests {
         assert_eq!(info.size_bytes, 4);
 
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn runtime_component_ids_normalize_dependency_names() {
+        assert_eq!(normalize_runtime_component_id("whisperCli"), Some("whisper"));
+        assert_eq!(normalize_runtime_component_id("whisper-cli"), Some("whisper"));
+        assert_eq!(normalize_runtime_component_id("ffprobe"), Some("ffmpeg"));
+        assert_eq!(normalize_runtime_component_id("ytDlp"), Some("yt-dlp"));
+        assert_eq!(normalize_runtime_component_id("unknown"), None);
+    }
+
+    #[test]
+    fn zip_entry_basename_handles_nested_and_windows_paths() {
+        assert_eq!(zip_entry_basename("bin/ffmpeg.exe").as_deref(), Some("ffmpeg.exe"));
+        assert_eq!(
+            zip_entry_basename("nested\\bin\\whisper.dll").as_deref(),
+            Some("whisper.dll")
+        );
+        assert_eq!(zip_entry_basename("/").as_deref(), None);
     }
 
     #[test]

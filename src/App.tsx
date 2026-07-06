@@ -222,6 +222,14 @@ interface ModelDownloadProgressEvent {
   message: string;
 }
 
+interface RuntimeComponentProgressEvent {
+  id: string;
+  downloadedBytes: number;
+  totalBytes: number;
+  progressPct: number;
+  message: string;
+}
+
 interface UrlPreviewResponse {
   filePath: string;
   previewSeconds: number;
@@ -328,6 +336,26 @@ interface RuntimeHealth {
 interface RuntimeRepairResult {
   id: string;
   message: string;
+  health: RuntimeHealth;
+}
+
+interface RuntimeComponent {
+  id: string;
+  status: RuntimeDependencyStatus;
+  kind: RuntimeDependencyKind;
+  installDir: string;
+  downloadUrl?: string | null;
+  downloadSizeBytes: number;
+  installedSizeBytes: number;
+  requiredFiles: string[];
+  detail?: string | null;
+  installable: boolean;
+}
+
+interface RuntimeComponentActionResult {
+  id: string;
+  message: string;
+  components: RuntimeComponent[];
   health: RuntimeHealth;
 }
 
@@ -513,6 +541,14 @@ function runtimeDependencyHint(id: string, t: Translate): string {
 
 function runtimeDependencyFix(id: string, t: Translate): string {
   return t(`runtime.fix.${id}`);
+}
+
+function runtimeComponentLabel(id: string, t: Translate): string {
+  return t(`runtime.component.${id}`);
+}
+
+function runtimeComponentHint(id: string, t: Translate): string {
+  return t(`runtime.componentHint.${id}`);
 }
 
 function runtimeStatusLabel(status: RuntimeDependencyStatus, t: Translate): string {
@@ -3665,6 +3701,11 @@ function SettingsPage({
   const [runtimeHealthStatus, setRuntimeHealthStatus] = useState<string | null>(null);
   const [runtimeHealthRefreshing, setRuntimeHealthRefreshing] = useState(false);
   const [runtimeRepairAction, setRuntimeRepairAction] = useState<string | null>(null);
+  const [runtimeComponents, setRuntimeComponents] = useState<RuntimeComponent[]>([]);
+  const [runtimeComponentStatus, setRuntimeComponentStatus] = useState<string | null>(null);
+  const [runtimeComponentRefreshing, setRuntimeComponentRefreshing] = useState(false);
+  const [runtimeComponentAction, setRuntimeComponentAction] = useState<string | null>(null);
+  const [runtimeComponentProgress, setRuntimeComponentProgress] = useState<RuntimeComponentProgressEvent | null>(null);
   const [privacyAction, setPrivacyAction] = useState<string | null>(null);
   const [modelPathInput, setModelPathInput] = useState('');
   const [modelDownloadUrl, setModelDownloadUrl] = useState('');
@@ -3752,6 +3793,26 @@ function SettingsPage({
     }
   }, [t]);
 
+  const refreshRuntimeComponents = useCallback(async () => {
+    if (!hasTauriRuntime()) {
+      setRuntimeComponents([]);
+      setRuntimeComponentStatus(t('runtime.componentsDesktopRequired'));
+      return;
+    }
+
+    setRuntimeComponentRefreshing(true);
+    try {
+      const components = await invokeTauri<RuntimeComponent[]>('cmd_get_runtime_components');
+      setRuntimeComponents(components);
+      setRuntimeComponentStatus(null);
+    } catch (error) {
+      setRuntimeComponents([]);
+      setRuntimeComponentStatus(errorToMessage(error, t));
+    } finally {
+      setRuntimeComponentRefreshing(false);
+    }
+  }, [t]);
+
   const handleRepairRuntimeDependency = async (item: RuntimeDependency) => {
     setRuntimeRepairAction(item.id);
     setRuntimeHealthStatus(t('runtime.repairingItem', { item: runtimeDependencyLabel(item.id, t) }));
@@ -3761,6 +3822,7 @@ function SettingsPage({
       });
       setRuntimeHealth(result.health);
       setRuntimeHealthStatus(result.message);
+      void refreshRuntimeComponents();
       onRefreshModelSettings();
       refreshDiagnosticsPreview();
     } catch (error) {
@@ -3768,6 +3830,61 @@ function SettingsPage({
       void refreshRuntimeHealth();
     } finally {
       setRuntimeRepairAction(null);
+    }
+  };
+
+  const handleDownloadRuntimeComponent = async (component: RuntimeComponent) => {
+    const label = runtimeComponentLabel(component.id, t);
+    setRuntimeComponentAction(`download:${component.id}`);
+    setRuntimeComponentStatus(t('runtime.componentDownloadStarting', { item: label }));
+    setRuntimeComponentProgress({
+      id: component.id,
+      downloadedBytes: 0,
+      totalBytes: component.downloadSizeBytes,
+      progressPct: 0,
+      message: t('runtime.componentDownloadStartingEvent'),
+    });
+
+    try {
+      const result = await invokeTauri<RuntimeComponentActionResult>('cmd_download_runtime_component', {
+        id: component.id,
+      });
+      setRuntimeComponents(result.components);
+      setRuntimeHealth(result.health);
+      setRuntimeComponentStatus(result.message);
+      setRuntimeComponentProgress(null);
+      refreshDiagnosticsPreview();
+    } catch (error) {
+      setRuntimeComponentStatus(errorToMessage(error, t));
+      setRuntimeComponentProgress(null);
+      void refreshRuntimeComponents();
+      void refreshRuntimeHealth();
+    } finally {
+      setRuntimeComponentAction(null);
+    }
+  };
+
+  const handleDeleteRuntimeComponent = async (component: RuntimeComponent) => {
+    const label = runtimeComponentLabel(component.id, t);
+    if (!window.confirm(t('runtime.componentDeleteConfirm', { item: label }))) {
+      return;
+    }
+
+    setRuntimeComponentAction(`delete:${component.id}`);
+    try {
+      const result = await invokeTauri<RuntimeComponentActionResult>('cmd_delete_runtime_component', {
+        id: component.id,
+      });
+      setRuntimeComponents(result.components);
+      setRuntimeHealth(result.health);
+      setRuntimeComponentStatus(result.message);
+      refreshDiagnosticsPreview();
+    } catch (error) {
+      setRuntimeComponentStatus(errorToMessage(error, t));
+      void refreshRuntimeComponents();
+      void refreshRuntimeHealth();
+    } finally {
+      setRuntimeComponentAction(null);
     }
   };
 
@@ -3812,6 +3929,11 @@ function SettingsPage({
     });
     queueMicrotask(() => {
       if (!cancelled) {
+        void refreshRuntimeComponents();
+      }
+    });
+    queueMicrotask(() => {
+      if (!cancelled) {
         void refreshModelCatalog();
       }
     });
@@ -3826,7 +3948,7 @@ function SettingsPage({
     return () => {
       cancelled = true;
     };
-  }, [refreshDiagnosticsPreview, refreshGlossaryEntries, refreshModelCatalog, refreshRuntimeHealth, onRefreshModelSettings, t, telemetryConsent]);
+  }, [refreshDiagnosticsPreview, refreshGlossaryEntries, refreshModelCatalog, refreshRuntimeComponents, refreshRuntimeHealth, onRefreshModelSettings, t, telemetryConsent]);
 
   useEffect(() => {
     if (!hasTauriRuntime()) return;
@@ -3834,6 +3956,21 @@ function SettingsPage({
     let unlisten: (() => void) | undefined;
     void listen<ModelDownloadProgressEvent>('model://download-progress', (event) => {
       setModelDownloadProgress(event.payload);
+    }).then((cleanup) => {
+      unlisten = cleanup;
+    });
+
+    return () => {
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hasTauriRuntime()) return;
+
+    let unlisten: (() => void) | undefined;
+    void listen<RuntimeComponentProgressEvent>('runtime://component-download-progress', (event) => {
+      setRuntimeComponentProgress(event.payload);
     }).then((cleanup) => {
       unlisten = cleanup;
     });
@@ -4283,6 +4420,105 @@ function SettingsPage({
         {runtimeHealthStatus && runtimeHealth ? (
           <p className="status-msg model-status-msg">{runtimeHealthStatus}</p>
         ) : null}
+        <div className="runtime-component-panel">
+          <div className="settings-section-header">
+            <div>
+              <h4>{t('runtime.componentsTitle')}</h4>
+              <p className="setting-meta">{t('runtime.componentsDescription')}</p>
+            </div>
+            <button
+              className="btn-secondary btn-sm-inline"
+              disabled={runtimeComponentRefreshing || runtimeComponentAction !== null}
+              onClick={() => {
+                void refreshRuntimeComponents();
+              }}
+            >
+              {runtimeComponentRefreshing ? t('runtime.refreshing') : t('runtime.componentsRefresh')}
+            </button>
+          </div>
+          {runtimeComponents.length > 0 ? (
+            <div className="runtime-component-list">
+              {runtimeComponents.map((component) => {
+                const label = runtimeComponentLabel(component.id, t);
+                const isDownloading = runtimeComponentAction === `download:${component.id}`;
+                const isDeleting = runtimeComponentAction === `delete:${component.id}`;
+                const progress = runtimeComponentProgress?.id === component.id
+                  ? runtimeComponentProgress
+                  : null;
+                const canDelete = component.status === 'ready' || component.installedSizeBytes > 0;
+
+                return (
+                  <div key={component.id} className="runtime-component-row">
+                    <div className="runtime-component-main">
+                      <div className="runtime-health-title">
+                        <strong>{label}</strong>
+                        <span className={`runtime-status-badge runtime-status-${component.status}`}>
+                          {runtimeStatusLabel(component.status, t)}
+                        </span>
+                        <span className="runtime-kind-badge">{runtimeKindLabel(component.kind, t)}</span>
+                      </div>
+                      <p className="setting-meta">{runtimeComponentHint(component.id, t)}</p>
+                      <p className="setting-meta">{t('runtime.componentInstallDir', { path: component.installDir })}</p>
+                      <div className="runtime-component-meta">
+                        <span>{t('runtime.componentDownloadSize', { size: formatFileSize(component.downloadSizeBytes) })}</span>
+                        <span>{t('runtime.componentInstalledSize', { size: formatFileSize(component.installedSizeBytes) })}</span>
+                        <span>{t('runtime.componentFiles', { files: component.requiredFiles.join(', ') })}</span>
+                      </div>
+                      {component.detail ? (
+                        <p className="setting-meta">{t('runtime.detail', { detail: component.detail })}</p>
+                      ) : null}
+                      {progress ? (
+                        <>
+                          <div className="runtime-component-progress-text">
+                            <span>{progress.message}</span>
+                            <span>{formatFileSize(progress.downloadedBytes)} / {formatFileSize(progress.totalBytes)}</span>
+                          </div>
+                          <div className="model-download-progress" aria-label={t('runtime.componentDownload')}>
+                            <div style={{ width: `${progress.progressPct}%` }} />
+                          </div>
+                        </>
+                      ) : null}
+                    </div>
+                    <div className="runtime-component-actions">
+                      <button
+                        className="btn-secondary btn-sm-inline"
+                        disabled={runtimeComponentAction !== null || !component.installable}
+                        onClick={() => {
+                          void handleDownloadRuntimeComponent(component);
+                        }}
+                      >
+                        {isDownloading
+                          ? t('runtime.componentDownloading')
+                          : component.status === 'ready'
+                            ? t('runtime.componentReinstall')
+                            : t('runtime.componentDownload')}
+                      </button>
+                      <button
+                        className="btn-secondary btn-sm-inline"
+                        disabled={runtimeComponentAction !== null || !canDelete}
+                        onClick={() => {
+                          void handleDeleteRuntimeComponent(component);
+                        }}
+                      >
+                        {isDeleting ? t('runtime.componentDeleting') : t('runtime.componentDelete')}
+                      </button>
+                      {!component.installable ? (
+                        <p className="runtime-fix">{t('runtime.componentUnavailable')}</p>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="status-msg model-status-msg">
+              {runtimeComponentStatus || (runtimeComponentRefreshing ? t('runtime.refreshing') : t('runtime.componentEmpty'))}
+            </p>
+          )}
+          {runtimeComponentStatus && runtimeComponents.length > 0 ? (
+            <p className="status-msg model-status-msg">{runtimeComponentStatus}</p>
+          ) : null}
+        </div>
       </section>
 
       {/* License */}

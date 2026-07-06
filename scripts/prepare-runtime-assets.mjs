@@ -12,10 +12,7 @@ const isMacosTarget = targetTriple.includes('apple-darwin') || targetTriple.incl
 
 const ytDlpAsset = (() => {
   if (isWindowsTarget) {
-    return {
-      url: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe',
-      path: join(workspaceRoot, 'release', 'windows-portable', 'AudraFlow', 'bin', 'yt-dlp.exe'),
-    };
+    return null;
   }
   if (isLinuxTarget) {
     return {

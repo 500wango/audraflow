@@ -923,6 +923,13 @@ fn resolve_demucs_invocation() -> Option<DemucsInvocation> {
         log::warn!("AUDRAFLOW_DEMUCS_BIN is set but is not runnable as demucs");
     }
 
+    if let Some(invocation) = managed_python_demucs_invocation() {
+        if probe_demucs(&invocation) {
+            return Some(invocation);
+        }
+        log::warn!("Managed Python runtime was found but could not run demucs");
+    }
+
     if let Some(invocation) = bundled_python_demucs_invocation() {
         if probe_demucs(&invocation) {
             return Some(invocation);
@@ -962,6 +969,33 @@ fn resolve_demucs_invocation() -> Option<DemucsInvocation> {
     ];
 
     candidates.into_iter().find(probe_demucs)
+}
+
+fn managed_python_demucs_invocation() -> Option<DemucsInvocation> {
+    let python = managed_python_bin();
+    if !python.is_file() {
+        return None;
+    }
+    let python_dir = python.parent().unwrap_or_else(|| Path::new(""));
+    let envs = bundled_python_envs(python_dir);
+    Some(DemucsInvocation {
+        label: format!("{} -m demucs", python.display()),
+        program: python.into_os_string(),
+        base_args: vec![OsString::from("-m"), OsString::from("demucs")],
+        envs,
+    })
+}
+
+fn managed_python_bin() -> PathBuf {
+    let venv_dir = app_data_dir()
+        .join("runtime")
+        .join("components")
+        .join("python-venv");
+    if cfg!(windows) {
+        venv_dir.join("Scripts").join("python.exe")
+    } else {
+        venv_dir.join("bin").join("python")
+    }
 }
 
 fn bundled_python_demucs_invocation() -> Option<DemucsInvocation> {
@@ -1007,6 +1041,34 @@ fn bundled_python_envs(python_dir: &Path) -> Vec<(OsString, OsString)> {
             python_dir.join("modelscope-cache").into_os_string(),
         ),
     ]
+}
+
+fn app_data_dir() -> PathBuf {
+    if let Some(path) = std::env::var_os("AUDRAFLOW_APP_DATA_DIR")
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+    {
+        return path;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return std::env::var_os("APPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("com.audraflow.app");
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share"))
+            })
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("com.audraflow.app")
+    }
 }
 
 fn runtime_search_roots() -> Vec<PathBuf> {

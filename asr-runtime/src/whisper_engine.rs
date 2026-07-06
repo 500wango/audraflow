@@ -201,6 +201,10 @@ fn ffprobe_command() -> PathBuf {
         return path;
     }
 
+    if let Some(path) = managed_component_binary("ffmpeg", "ffprobe") {
+        return path;
+    }
+
     if let Ok(exe_path) = std::env::current_exe() {
         for root in exe_path.ancestors() {
             for candidate in [
@@ -232,6 +236,7 @@ pub fn resolve_whisper_cli(explicit: Option<PathBuf>) -> PathBuf {
     }
 
     whisper_cli_env_override()
+        .or_else(|| managed_component_binary("whisper", whisper_cli_binary_name()))
         .or_else(find_bundled_whisper_cli)
         .or_else(|| which::which(whisper_cli_binary_name()).ok())
         .unwrap_or_else(|| PathBuf::from(whisper_cli_binary_name()))
@@ -303,6 +308,52 @@ fn whisper_cli_binary_name() -> &'static str {
         "whisper-cli.exe"
     } else {
         "whisper-cli"
+    }
+}
+
+fn managed_component_binary(component_id: &str, file_name: &str) -> Option<PathBuf> {
+    let path = app_data_dir()
+        .join("runtime")
+        .join("components")
+        .join(component_id)
+        .join("bin")
+        .join(platform_binary_name(file_name));
+    path.is_file().then_some(path)
+}
+
+fn platform_binary_name(file_name: &str) -> String {
+    if cfg!(windows) && !file_name.ends_with(".exe") {
+        format!("{file_name}.exe")
+    } else {
+        file_name.to_string()
+    }
+}
+
+fn app_data_dir() -> PathBuf {
+    if let Some(path) = std::env::var_os("AUDRAFLOW_APP_DATA_DIR")
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+    {
+        return path;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return std::env::var_os("APPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("com.audraflow.app");
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share"))
+            })
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("com.audraflow.app")
     }
 }
 

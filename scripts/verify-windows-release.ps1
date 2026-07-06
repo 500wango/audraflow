@@ -83,14 +83,7 @@ function Test-AudraFlowAppLayout {
   $required = @(
     'AudraFlow.exe',
     'audraflow-orchestrator.exe',
-    'audraflow-asr-runtime.exe',
-    'bin\whisper-cli.exe',
-    'bin\ffmpeg.exe',
-    'bin\ffprobe.exe',
-    'bin\yt-dlp.exe',
-    'bin\llama-funasr-cli.exe',
-    'bin\python\python.exe',
-    'bin\python\.audraflow-runtime.json'
+    'audraflow-asr-runtime.exe'
   )
 
   foreach ($relativePath in $required) {
@@ -98,66 +91,46 @@ function Test-AudraFlowAppLayout {
     Write-Host ("OK {0} ({1:N0} bytes)" -f $relativePath, $item.Length)
   }
 
-  $requiredDlls = @(
-    'bin\vcruntime140.dll',
-    'bin\vcruntime140_1.dll',
-    'bin\msvcp140.dll',
-    'bin\whisper.dll',
-    'bin\ggml.dll',
-    'bin\ggml-base.dll',
-    'bin\ggml-cpu.dll'
+  return $resolved
+}
+
+function Test-RuntimeComponentArchives {
+  param([string]$Workspace)
+
+  Write-Step 'Checking runtime component archives'
+  $version = (Get-Content -LiteralPath (Join-Path $Workspace 'package.json') -Raw | ConvertFrom-Json).version
+  $archives = @(
+    "release\AudraFlow_${version}_windows_whisper-runtime.zip",
+    "release\AudraFlow_${version}_windows_ffmpeg-runtime.zip"
   )
-  foreach ($relativePath in $requiredDlls) {
-    $item = Assert-File -Path (Join-Path $resolved $relativePath) -MinBytes 1024
+  foreach ($relativePath in $archives) {
+    $item = Assert-File -Path (Join-Path $Workspace $relativePath) -MinBytes 1024
     Write-Host ("OK {0} ({1:N0} bytes)" -f $relativePath, $item.Length)
   }
+}
 
-  $requiredPythonPackages = @(
-    'bin\python\Lib\site-packages\demucs',
-    'bin\python\Lib\site-packages\funasr',
-    'bin\python\Lib\site-packages\modelscope',
-    'bin\python\Lib\site-packages\torch',
-    'bin\python\Lib\site-packages\torchaudio'
+function Install-TestRuntimeComponents {
+  param([string]$Workspace)
+
+  Write-Step 'Installing runtime components into temporary AppData for smoke test'
+  $version = (Get-Content -LiteralPath (Join-Path $Workspace 'package.json') -Raw | ConvertFrom-Json).version
+  $root = Join-Path $env:TEMP 'audraflow-verify-appdata'
+  Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+  New-Item -ItemType Directory -Force $root | Out-Null
+  $env:AUDRAFLOW_APP_DATA_DIR = $root
+
+  $components = @(
+    @{ Id = 'whisper'; Archive = "release\AudraFlow_${version}_windows_whisper-runtime.zip" },
+    @{ Id = 'ffmpeg'; Archive = "release\AudraFlow_${version}_windows_ffmpeg-runtime.zip" }
   )
-  foreach ($relativePath in $requiredPythonPackages) {
-    $path = Join-Path $resolved $relativePath
-    if (-not (Test-Path -LiteralPath $path -PathType Container)) {
-      throw "Missing Python package directory: $path"
-    }
-    Write-Host "OK $relativePath"
+  foreach ($component in $components) {
+    $archivePath = Join-Path $Workspace $component.Archive
+    Assert-File -Path $archivePath -MinBytes 1024 | Out-Null
+    $destination = Join-Path $root ("runtime\components\{0}\bin" -f $component.Id)
+    New-Item -ItemType Directory -Force $destination | Out-Null
+    Expand-Archive -LiteralPath $archivePath -DestinationPath $destination -Force
+    Write-Host "OK $($component.Id): $destination"
   }
-
-  $optionalDlls = @(
-    'bin\concrt140.dll',
-    'bin\libgcc_s_seh-1.dll',
-    'bin\libgomp-1.dll',
-    'bin\libstdc++-6.dll',
-    'bin\libwinpthread-1.dll',
-    'bin\msvcp140_1.dll',
-    'bin\msvcp140_2.dll',
-    'bin\msvcp140_atomic_wait.dll',
-    'bin\msvcp140_codecvt_ids.dll',
-    'bin\vcomp140.dll',
-    'bin\vcruntime140_threads.dll'
-  )
-  foreach ($relativePath in $optionalDlls) {
-    $path = Join-Path $resolved $relativePath
-    if (Test-Path -LiteralPath $path -PathType Leaf) {
-      $item = Assert-File -Path $path -MinBytes 1024
-      Write-Host ("OK {0} ({1:N0} bytes)" -f $relativePath, $item.Length)
-    }
-  }
-
-  Write-Step "Checking bundled command-line tools"
-  Invoke-Checked -FilePath (Join-Path $resolved 'bin\ffmpeg.exe') -Arguments @('-version') -WorkingDirectory $resolved
-  Invoke-Checked -FilePath (Join-Path $resolved 'bin\ffprobe.exe') -Arguments @('-version') -WorkingDirectory $resolved
-  Invoke-Checked -FilePath (Join-Path $resolved 'bin\whisper-cli.exe') -Arguments @('--help') -WorkingDirectory $resolved -AllowedExitCodes @(0, 1)
-  Invoke-Checked -FilePath (Join-Path $resolved 'bin\yt-dlp.exe') -Arguments @('--version') -WorkingDirectory $resolved
-  Invoke-Checked -FilePath (Join-Path $resolved 'bin\llama-funasr-cli.exe') -Arguments @('--help') -WorkingDirectory $resolved -AllowedExitCodes @(0, 1)
-  Invoke-Checked -FilePath (Join-Path $resolved 'bin\python\python.exe') -Arguments @('-c', 'import demucs, funasr, modelscope, torch, torchaudio; print("AudraFlow Python runtime ready")') -WorkingDirectory $resolved
-  Invoke-Checked -FilePath (Join-Path $resolved 'bin\python\python.exe') -Arguments @('-m', 'demucs', '--help') -WorkingDirectory $resolved
-
-  return $resolved
 }
 
 function Test-NsisHookConfig {
@@ -223,6 +196,8 @@ if ($InstalledAppDir) {
 }
 
 if (-not $SkipInstallerCheck) {
+  Test-RuntimeComponentArchives -Workspace $workspace
+
   Write-Step 'Checking installer artifacts'
   $installerRoot = (Resolve-Path $InstallerDir).Path
   $installers = @()
@@ -240,6 +215,8 @@ if (-not $SkipInstallerCheck) {
 }
 
 if (-not $SkipSmoke) {
+  Install-TestRuntimeComponents -Workspace $workspace
+
   Write-Step 'Running packaged orchestrator smoke test'
   Assert-File -Path $AudioPath -MinBytes 1024 | Out-Null
   Assert-File -Path $ModelPath -MinBytes 1024 | Out-Null

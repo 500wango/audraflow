@@ -14,7 +14,6 @@
     "preview": "vite preview",
     "smoke:e2e": "node scripts/smoke-e2e.mjs",
     "prepare:runtime-assets": "node scripts/prepare-runtime-assets.mjs",
-    "prepare:windows-runtime": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-windows-runtime.ps1",
     "stage:sidecars": "node scripts/stage-sidecars.mjs",
     "desktop:build": "tauri build",
     "desktop:build:linux": "tauri build --bundles deb,rpm,appimage",

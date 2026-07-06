@@ -1,5 +1,5 @@
-import { copyFile, cp, mkdir, readdir, rm, stat } from 'node:fs/promises';
-import { basename, delimiter, dirname, join } from 'node:path';
+import { copyFile, mkdir, stat } from 'node:fs/promises';
+import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const workspaceRoot = process.cwd();
@@ -14,33 +14,6 @@ const releaseDir = process.env.AUDRAFLOW_TARGET_TRIPLE || process.env.CARGO_BUIL
   ? join(targetDir, targetTriple, 'release')
   : join(targetDir, 'release');
 const binariesDir = join(workspaceRoot, 'src-tauri', 'binaries');
-const windowsResourceBinDir = join(binariesDir, 'windows-bin');
-const windowsPythonRuntimeSourceDir = join(workspaceRoot, 'release', 'windows-runtime', 'python');
-const requiredWindowsRuntimeDllNames = [
-  'vcruntime140.dll',
-  'vcruntime140_1.dll',
-  'msvcp140.dll',
-];
-const optionalWindowsRuntimeDllNames = [
-  'concrt140.dll',
-  'msvcp140_1.dll',
-  'msvcp140_2.dll',
-  'msvcp140_atomic_wait.dll',
-  'msvcp140_codecvt_ids.dll',
-  'vcomp140.dll',
-  'vcruntime140_threads.dll',
-];
-const requiredWindowsWhisperDllNames = [
-  'whisper.dll',
-  'ggml.dll',
-  'ggml-base.dll',
-  'ggml-cpu.dll',
-];
-const vcRuntimeFamilies = [
-  'Microsoft.VC143.CRT',
-  'Microsoft.VC142.CRT',
-  'Microsoft.VC141.CRT',
-];
 const sidecars = [
   { packageName: 'audraflow-orchestrator', binaryName: 'audraflow-orchestrator' },
   { packageName: 'audraflow-asr-runtime', binaryName: 'audraflow-asr-runtime' },
@@ -48,6 +21,7 @@ const sidecars = [
 
 console.log(`staging sidecars for target: ${targetTriple}`);
 console.log(`cargo release directory: ${releaseDir}`);
+
 const linuxToolSources = [
   {
     bundleName: 'whisper-cli',
@@ -120,42 +94,7 @@ const linuxToolSources = [
     ],
   },
 ];
-const windowsToolSources = [
-  {
-    bundleName: 'whisper-cli',
-    sources: [
-      join(workspaceRoot, 'external', 'whisper.cpp', 'build', 'bin', 'Release', 'whisper-cli.exe'),
-      join(workspaceRoot, 'external', 'whisper.cpp', 'build', 'bin', 'whisper-cli.exe'),
-      join(workspaceRoot, 'release', 'windows-portable', 'AudraFlow', 'bin', 'whisper-cli.exe'),
-    ],
-  },
-  {
-    bundleName: 'ffmpeg',
-    sources: [
-      join(workspaceRoot, 'release', 'windows-portable', 'AudraFlow', 'bin', 'ffmpeg.exe'),
-    ],
-  },
-  {
-    bundleName: 'ffprobe',
-    sources: [
-      join(workspaceRoot, 'release', 'windows-portable', 'AudraFlow', 'bin', 'ffprobe.exe'),
-    ],
-  },
-  {
-    bundleName: 'yt-dlp',
-    sources: [
-      join(workspaceRoot, 'release', 'windows-portable', 'AudraFlow', 'bin', 'yt-dlp.exe'),
-    ],
-  },
-  {
-    bundleName: 'llama-funasr-cli',
-    sources: [
-      join(workspaceRoot, 'external', 'Fun-ASR', 'runtime', 'llama.cpp', 'build-windows', 'bin', 'Release', 'llama-funasr-cli.exe'),
-      join(workspaceRoot, 'external', 'Fun-ASR', 'runtime', 'llama.cpp', 'build-windows', 'bin', 'llama-funasr-cli.exe'),
-      join(workspaceRoot, 'release', 'windows-portable', 'AudraFlow', 'bin', 'llama-funasr-cli.exe'),
-    ],
-  },
-];
+
 const macosToolSources = [
   {
     bundleName: 'whisper-cli',
@@ -229,13 +168,6 @@ async function ensureFile(path) {
   }
 }
 
-async function ensureDirectory(path) {
-  const metadata = await stat(path);
-  if (!metadata.isDirectory()) {
-    throw new Error(`Directory is missing: ${path}`);
-  }
-}
-
 async function findExistingFile(candidates) {
   for (const candidate of candidates) {
     try {
@@ -257,7 +189,6 @@ async function stageExternalTool({ bundleName, sources }) {
   const destination = join(binariesDir, `${bundleName}-${targetTriple}${extension}`);
   await copyFile(source, destination);
   console.log(`staged ${destination}`);
-  return source;
 }
 
 async function stageOptionalExternalTool(tool) {
@@ -270,296 +201,6 @@ async function stageOptionalExternalTool(tool) {
   const destination = join(binariesDir, `${tool.bundleName}-${targetTriple}${extension}`);
   await copyFile(source, destination);
   console.log(`staged ${destination}`);
-  return source;
-}
-
-async function copyIntoDir(source, destinationDir, destinationName = basename(source)) {
-  await mkdir(destinationDir, { recursive: true });
-  const destination = join(destinationDir, destinationName);
-  await copyFile(source, destination);
-  console.log(`staged ${destination}`);
-}
-
-async function copyDirectory(source, destination) {
-  await rm(destination, { recursive: true, force: true });
-  await mkdir(dirname(destination), { recursive: true });
-  await cp(source, destination, { recursive: true, force: true });
-  console.log(`staged ${destination}`);
-}
-
-async function copySiblingDlls(source, destinationDir) {
-  const sourceDir = dirname(source);
-  const dirs = [sourceDir];
-  const dirName = basename(sourceDir).toLowerCase();
-  if (dirName === 'release' || dirName === 'debug') {
-    dirs.push(dirname(sourceDir));
-  } else {
-    dirs.push(join(sourceDir, 'Release'));
-    dirs.push(join(sourceDir, 'Debug'));
-  }
-
-  const seen = new Set();
-  for (const dir of dirs) {
-    let entries = [];
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-
-    for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.dll')) {
-        continue;
-      }
-      const dllSource = join(dir, entry.name);
-      const key = entry.name.toLowerCase();
-      if (seen.has(key)) {
-        continue;
-      }
-      seen.add(key);
-      await copyIntoDir(dllSource, destinationDir);
-    }
-  }
-}
-
-function envValue(...names) {
-  for (const name of names) {
-    const value = process.env[name];
-    if (value && value.trim()) {
-      return value;
-    }
-  }
-  return null;
-}
-
-function addSearchRoot(roots, path, depth = 0) {
-  if (!path) {
-    return;
-  }
-  const key = path.toLowerCase();
-  if (!roots.some((root) => root.path.toLowerCase() === key)) {
-    roots.push({ path, depth });
-  }
-}
-
-function addVCRedistRoot(roots, redistRoot) {
-  if (!redistRoot) {
-    return;
-  }
-  for (const family of vcRuntimeFamilies) {
-    addSearchRoot(roots, join(redistRoot, 'x64', family));
-  }
-  addSearchRoot(roots, redistRoot);
-}
-
-function windowsRuntimeDllSearchRoots() {
-  const roots = [];
-  addSearchRoot(roots, join(workspaceRoot, 'release', 'windows-portable', 'AudraFlow', 'bin'));
-  addSearchRoot(roots, join(workspaceRoot, 'external', 'whisper.cpp', 'build', 'bin'));
-  addSearchRoot(roots, join(workspaceRoot, 'external', 'whisper.cpp', 'build', 'bin', 'Release'));
-
-  const vcToolsRedistDir = envValue('VCToolsRedistDir', 'VCTOOLSREDISTDIR');
-  if (vcToolsRedistDir) {
-    addVCRedistRoot(roots, vcToolsRedistDir);
-  }
-
-  for (const programFiles of [
-    envValue('ProgramFiles(x86)', 'PROGRAMFILES(X86)'),
-    envValue('ProgramFiles', 'PROGRAMFILES'),
-  ]) {
-    if (!programFiles) {
-      continue;
-    }
-    for (const edition of ['BuildTools', 'Community', 'Professional', 'Enterprise']) {
-      addSearchRoot(
-        roots,
-        join(programFiles, 'Microsoft Visual Studio', '2022', edition, 'VC', 'Redist', 'MSVC'),
-        1,
-      );
-    }
-  }
-
-  const pathDirs = (process.env.PATH || process.env.Path || '')
-    .split(delimiter)
-    .map((value) => value.trim())
-    .filter(Boolean);
-  for (const pathDir of pathDirs) {
-    addSearchRoot(roots, pathDir);
-  }
-
-  const systemRoot = envValue('SystemRoot', 'WINDIR');
-  if (systemRoot) {
-    addSearchRoot(roots, join(systemRoot, 'System32'));
-  }
-
-  return roots;
-}
-
-async function findFileRecursive(root, fileName, maxDepth) {
-  const direct = join(root, fileName);
-  try {
-    await ensureFile(direct);
-    return direct;
-  } catch {
-    // Search subdirectories below.
-  }
-
-  if (maxDepth <= 0) {
-    return null;
-  }
-
-  let entries = [];
-  try {
-    entries = await readdir(root, { withFileTypes: true });
-  } catch {
-    return null;
-  }
-
-  for (const entry of entries) {
-    if (!entry.isDirectory()) {
-      continue;
-    }
-    const found = await findFileRecursive(join(root, entry.name), fileName, maxDepth - 1);
-    if (found) {
-      return found;
-    }
-  }
-
-  return null;
-}
-
-async function findVisualStudioRuntimeDll(root, fileName) {
-  let versions = [];
-  try {
-    versions = await readdir(root, { withFileTypes: true });
-  } catch {
-    return null;
-  }
-
-  for (const version of versions.filter((entry) => entry.isDirectory())) {
-    for (const family of vcRuntimeFamilies) {
-      const candidate = join(root, version.name, 'x64', family, fileName);
-      try {
-        await ensureFile(candidate);
-        return candidate;
-      } catch {
-        // Try the next runtime family/version.
-      }
-    }
-  }
-  return null;
-}
-
-async function stageWindowsRuntimeDlls() {
-  const searchRoots = windowsRuntimeDllSearchRoots();
-  const missing = [];
-  const seen = new Set();
-  for (const name of [...requiredWindowsRuntimeDllNames, ...optionalWindowsRuntimeDllNames]) {
-    const key = name.toLowerCase();
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    let found = null;
-    for (const root of searchRoots) {
-      found = root.depth === 1
-        ? await findVisualStudioRuntimeDll(root.path, name)
-        : await findFileRecursive(root.path, name, root.depth);
-      if (found) {
-        break;
-      }
-    }
-    if (found) {
-      await copyIntoDir(found, windowsResourceBinDir, name);
-    } else if (requiredWindowsRuntimeDllNames.includes(name)) {
-      missing.push(name);
-    } else {
-      console.log(`skipped optional Windows runtime DLL: ${name}`);
-    }
-  }
-
-  if (missing.length > 0) {
-    const searchedRoots = searchRoots
-      .map((root) => `${root.path}${root.depth > 0 ? ` (depth ${root.depth})` : ''}`)
-      .join('\n  ');
-    throw new Error(
-      `Missing required Windows runtime DLL(s): ${missing.join(', ')}. Install Microsoft Visual C++ Redistributable 2015-2022 x64 or build whisper-cli with a static runtime.\nSearched:\n  ${searchedRoots}`,
-    );
-  }
-}
-
-async function stageWindowsWhisperDlls() {
-  const searchRoots = [
-    join(workspaceRoot, 'external', 'whisper.cpp', 'build', 'bin', 'Release'),
-    join(workspaceRoot, 'external', 'whisper.cpp', 'build', 'bin'),
-    join(workspaceRoot, 'external', 'whisper.cpp', 'build'),
-    join(workspaceRoot, 'release', 'windows-portable', 'AudraFlow', 'bin'),
-  ];
-
-  for (const name of requiredWindowsWhisperDllNames) {
-    try {
-      await ensureFile(join(windowsResourceBinDir, name));
-      continue;
-    } catch {
-      // Search below.
-    }
-
-    let found = null;
-    for (const root of searchRoots) {
-      found = await findFileRecursive(root, name, 6);
-      if (found) {
-        break;
-      }
-    }
-    if (found) {
-      await copyIntoDir(found, windowsResourceBinDir, name);
-    }
-  }
-}
-
-async function assertWindowsWhisperDlls() {
-  const missing = [];
-  for (const name of requiredWindowsWhisperDllNames) {
-    try {
-      await ensureFile(join(windowsResourceBinDir, name));
-    } catch {
-      missing.push(name);
-    }
-  }
-
-  if (missing.length > 0) {
-    throw new Error(
-      `Missing required whisper.cpp DLL(s): ${missing.join(', ')}. These DLLs must be staged beside bin\\whisper-cli.exe.`,
-    );
-  }
-}
-
-async function stageWindowsPythonRuntime() {
-  const destination = join(windowsResourceBinDir, 'python');
-  await ensureDirectory(windowsPythonRuntimeSourceDir).catch(() => {
-    throw new Error(
-      `Missing bundled Windows Python runtime: ${windowsPythonRuntimeSourceDir}. Run npm run prepare:windows-runtime before staging Windows sidecars.`,
-    );
-  });
-  await copyDirectory(windowsPythonRuntimeSourceDir, destination);
-
-  await ensureFile(join(destination, 'python.exe'));
-  await ensureFile(join(destination, '.audraflow-runtime.json'));
-  for (const packageDir of ['demucs', 'funasr', 'modelscope', 'torch', 'torchaudio']) {
-    await ensureDirectory(join(destination, 'Lib', 'site-packages', packageDir)).catch(() => {
-      throw new Error(`Bundled Windows Python runtime is missing package: ${packageDir}`);
-    });
-  }
-}
-
-async function stageWindowsResourceTool(tool) {
-  const source = await findExistingFile(tool.sources);
-  if (!source) {
-    throw new Error(`Could not find required bundled tool: ${tool.bundleName}`);
-  }
-
-  await copyIntoDir(source, windowsResourceBinDir, `${tool.bundleName}.exe`);
-  await copySiblingDlls(source, windowsResourceBinDir);
 }
 
 const cargoArgs = ['build', '--release'];
@@ -590,15 +231,7 @@ if (targetTriple.includes('linux')) {
     }
   }
 } else if (targetTriple.includes('windows')) {
-  await rm(windowsResourceBinDir, { recursive: true, force: true });
-  await stageWindowsPythonRuntime();
-  for (const tool of windowsToolSources) {
-    await stageExternalTool(tool);
-    await stageWindowsResourceTool(tool);
-  }
-  await stageWindowsWhisperDlls();
-  await stageWindowsRuntimeDlls();
-  await assertWindowsWhisperDlls();
+  console.log('Windows runtime tools are not bundled; install them from Settings after setup.');
 } else if (isMacosTarget) {
   for (const tool of macosToolSources) {
     await stageExternalTool(tool);

@@ -7,10 +7,23 @@
   ${If} ${Errors}
   ${OrIf} $R0 != 1
     DetailPrint "Microsoft Visual C++ Runtime x64 was not detected."
-    DetailPrint "Starting Microsoft Visual C++ Redistributable x64 background install..."
+    DetailPrint "Downloading Microsoft Visual C++ Redistributable x64..."
     Delete "$TEMP\audraflow-vc_redist.x64.exe"
-    Exec `powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri 'https://aka.ms/vc14/vc_redist.x64.exe' -OutFile '$TEMP\audraflow-vc_redist.x64.exe'; Start-Process -FilePath '$TEMP\audraflow-vc_redist.x64.exe' -ArgumentList '/install','/quiet','/norestart' -Wait; Remove-Item -LiteralPath '$TEMP\audraflow-vc_redist.x64.exe' -Force -ErrorAction SilentlyContinue } catch { }"`
-    DetailPrint "AudraFlow will use bundled runtime DLLs while the background installer runs."
+    ExecWait `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri 'https://aka.ms/vc14/vc_redist.x64.exe' -OutFile '$TEMP\audraflow-vc_redist.x64.exe'; exit 0 } catch { exit 1 }"` $R1
+    ${If} $R1 == 0
+      DetailPrint "Installing Microsoft Visual C++ Redistributable x64..."
+      ExecWait `"$TEMP\audraflow-vc_redist.x64.exe" /install /quiet /norestart` $R2
+      ${If} $R2 == 0
+        DetailPrint "Microsoft Visual C++ Redistributable x64 installed."
+      ${ElseIf} $R2 == 3010
+        DetailPrint "Microsoft Visual C++ Redistributable x64 installed. A restart may be required."
+      ${Else}
+        DetailPrint "Microsoft Visual C++ Redistributable x64 installer exited with code $R2."
+      ${EndIf}
+      Delete "$TEMP\audraflow-vc_redist.x64.exe"
+    ${Else}
+      DetailPrint "Could not download Microsoft Visual C++ Redistributable x64. Runtime components can still be installed from Settings after VC++ is available."
+    ${EndIf}
   ${Else}
     DetailPrint "Microsoft Visual C++ Runtime x64 is already installed."
   ${EndIf}

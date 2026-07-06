@@ -52,12 +52,6 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Cache Windows Python runtime
-        uses: actions/cache@v4
-        with:
-          path: release/windows-runtime/python
-          key: windows-python-runtime-${{ hashFiles('scripts/prepare-windows-runtime.ps1') }}
-
       - name: Prepare FFmpeg tools
         shell: pwsh
         run: |
@@ -82,21 +76,46 @@ jobs:
             throw "whisper-cli.exe was not produced at $flatCli"
           }
 
-      - name: Build Fun-ASR CLI
+      - name: Package runtime components
         shell: pwsh
         run: |
-          cmake -S external\Fun-ASR\runtime\llama.cpp -B external\Fun-ASR\runtime\llama.cpp\build-windows -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF
-          cmake --build external\Fun-ASR\runtime\llama.cpp\build-windows --config Release --target llama-funasr-cli --parallel
+          $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
+          $tempRoot = Join-Path $env:RUNNER_TEMP "audraflow-runtime-components"
+          Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force release | Out-Null
 
-          $releaseCli = "external\Fun-ASR\runtime\llama.cpp\build-windows\bin\Release\llama-funasr-cli.exe"
-          $flatCli = "external\Fun-ASR\runtime\llama.cpp\build-windows\bin\llama-funasr-cli.exe"
-          if (Test-Path $releaseCli) {
-            Copy-Item $releaseCli $flatCli -Force
+          $whisperDir = Join-Path $tempRoot "whisper\bin"
+          New-Item -ItemType Directory -Force $whisperDir | Out-Null
+          $whisperSearchRoots = @(
+            "external\whisper.cpp\build\bin\Release",
+            "external\whisper.cpp\build\bin",
+            "external\whisper.cpp\build"
+          )
+          foreach ($name in @("whisper-cli.exe", "whisper.dll", "ggml.dll", "ggml-base.dll", "ggml-cpu.dll")) {
+            $match = $null
+            foreach ($root in $whisperSearchRoots) {
+              if (Test-Path -LiteralPath $root) {
+                $match = Get-ChildItem -LiteralPath $root -Recurse -Filter $name -File -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($match) { break }
+              }
+            }
+            if (-not $match) {
+              throw "Missing whisper runtime component: $name"
+            }
+            Copy-Item -LiteralPath $match.FullName -Destination (Join-Path $whisperDir $name) -Force
           }
+          Compress-Archive -Path (Join-Path $whisperDir "*") -DestinationPath "release\AudraFlow_${version}_windows_whisper-runtime.zip" -Force
 
-          if (-not (Test-Path $flatCli)) {
-            throw "llama-funasr-cli.exe was not produced at $flatCli"
+          $ffmpegDir = Join-Path $tempRoot "ffmpeg\bin"
+          New-Item -ItemType Directory -Force $ffmpegDir | Out-Null
+          foreach ($name in @("ffmpeg.exe", "ffprobe.exe")) {
+            $source = Join-Path "release\windows-portable\AudraFlow\bin" $name
+            if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+              throw "Missing FFmpeg runtime component: $source"
+            }
+            Copy-Item -LiteralPath $source -Destination (Join-Path $ffmpegDir $name) -Force
           }
+          Compress-Archive -Path (Join-Path $ffmpegDir "*") -DestinationPath "release\AudraFlow_${version}_windows_ffmpeg-runtime.zip" -Force
 
       - name: Lint
         run: npm run lint
@@ -106,10 +125,6 @@ jobs:
 
       - name: Prepare runtime assets
         run: npm run prepare:runtime-assets
-
-      - name: Prepare Windows runtime
-        shell: pwsh
-        run: npm run prepare:windows-runtime
 
       - name: Stage sidecars
         run: npm run stage:sidecars
@@ -133,6 +148,7 @@ jobs:
           path: |
             target/release/bundle/nsis/*.exe
             target/release/bundle/msi/*.msi
+            release/*.zip
             release/AudraFlow_*_windows_manifest.json
             release/SHA256SUMS.windows
 
@@ -172,6 +188,7 @@ jobs:
           $assets = @()
           $assets += Get-ChildItem -LiteralPath "target\release\bundle\nsis" -Filter "*.exe" -File -ErrorAction SilentlyContinue
           $assets += Get-ChildItem -LiteralPath "target\release\bundle\msi" -Filter "*.msi" -File -ErrorAction SilentlyContinue
+          $assets += Get-ChildItem -LiteralPath "release" -Filter "*.zip" -File -ErrorAction SilentlyContinue
           $assets += Get-ChildItem -LiteralPath "release" -Filter "AudraFlow_*_windows_manifest.json" -File -ErrorAction SilentlyContinue
           $assets += Get-Item -LiteralPath "release\SHA256SUMS.windows" -ErrorAction SilentlyContinue
 

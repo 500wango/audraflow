@@ -15,7 +15,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 ## Desktop Builds
 
-The Tauri build packages the React UI, the two required local sidecars, and the runtime tools needed to run after the user downloads or imports an ASR model.
+The Tauri build packages the React UI and the two required local sidecars:
 
 - `audraflow-orchestrator`
 - `audraflow-asr-runtime`
@@ -28,9 +28,15 @@ Linux packages also include the local runtime tools needed for transcription and
 - `yt-dlp`
 - whisper.cpp shared libraries required by `whisper-cli`
 
-Windows and macOS packages include the same command-line tools without the Linux shared libraries. Windows packages also include a bundled Python runtime with Demucs and SenseVoice Python dependencies.
+macOS packages include the same command-line tools without the Linux shared libraries.
 
-Before bundling, `npm run prepare:runtime-assets` fetches the platform `yt-dlp` binary, then `npm run stage:sidecars` builds the Rust sidecars in release mode and copies required external tools to `src-tauri/binaries` using Tauri's target-triple naming convention. Windows builds also run `npm run prepare:windows-runtime` to build the bundled Python/Demucs/SenseVoice runtime.
+Windows installers intentionally stay small. They include the app and Rust sidecars only; Whisper, FFmpeg, and yt-dlp are app-managed runtime components downloaded from Settings after installation. Windows release builds publish separate component archives:
+
+- `AudraFlow_<version>_windows_whisper-runtime.zip`
+- `AudraFlow_<version>_windows_ffmpeg-runtime.zip`
+- the official `yt-dlp.exe` download
+
+Before bundling, `npm run prepare:runtime-assets` fetches platform runtime assets for non-Windows targets, then `npm run stage:sidecars` builds the Rust sidecars in release mode and copies target-specific sidecars/tools to `src-tauri/binaries` using Tauri's target-triple naming convention.
 
 Build installers for the current platform:
 
@@ -71,9 +77,9 @@ For cross-target staging, set `AUDRAFLOW_TARGET_TRIPLE` or `CARGO_BUILD_TARGET` 
 
 ## Local ASR Engines
 
-AudraFlow defaults to Auto engine selection for new transcription jobs. Release packages include the native runtime tools, but ASR models are downloaded or imported from Settings. Auto uses local Whisper after a Whisper model is selected. Windows packages include the Python dependencies for SenseVoice and Demucs; SenseVoice model files are still downloaded by the engine on first use. In Music / lyrics mode, Auto uses the selected or preferred Whisper model with long-context chunking. Extreme lyrics mode also merges original-audio and Demucs-vocals candidates when possible.
+AudraFlow defaults to Auto engine selection for new transcription jobs. ASR models are downloaded or imported from Settings. Auto uses local Whisper after a Whisper model is selected. On Windows, users should install the Whisper and FFmpeg runtime components from Settings before running local transcription. In Music / lyrics mode, Auto uses the selected or preferred Whisper model with long-context chunking. Extreme lyrics mode also merges original-audio and Demucs-vocals candidates when possible.
 
-Settings includes Runtime Health for install validation and one-click repair. It can download the default Whisper model, install a managed `yt-dlp`, and run Python package repair as a fallback for optional SenseVoice and Demucs support. Manual commands and environment variables below are fallback paths when the bundled runtime or repair action cannot be used in the target environment.
+Settings includes Runtime Health for install validation, Runtime Components for app-managed tool downloads, and one-click repair for optional Python packages. Python itself is not bundled in the Windows installer. If the user enables SenseVoice or Demucs repair, AudraFlow uses a detected Python 3 installation (or `AUDRAFLOW_PYTHON_BIN`) to create an isolated venv under the app data runtime directory and installs the required packages there. Manual commands and environment variables below are fallback paths when managed components or repair cannot be used in the target environment.
 
 The Import page also has an audio language selector:
 
@@ -81,10 +87,10 @@ The Import page also has an audio language selector:
 - `Chinese`: force `zh` for Mandarin/Chinese recordings.
 - `English`: force `en` for English speech or songs.
 
-SenseVoice is executed through Python and FunASR. Install the local dependencies before using the SenseVoice engine:
+SenseVoice is executed through Python and FunASR. In the desktop app, use Runtime Health repair to install the packages into AudraFlow's isolated Python environment. For manual setup, install the local dependencies in your chosen Python environment:
 
 ```bash
-python3 -m pip install --user -U funasr modelscope
+python3 -m pip install -U funasr modelscope
 ```
 
 The first SenseVoice transcription downloads the default model from ModelScope:
@@ -144,12 +150,13 @@ Windows: %APPDATA%\com.audraflow.app\models\tiny-vlocal\model.bin
 The Whisper runtime and orchestrator auto-discover `whisper-cli` from:
 
 1. `AUDRAFLOW_WHISPER_CLI` or legacy `FT_WHISPER_CLI`
-2. bundled desktop package tools, when installed from an AudraFlow package
-3. `external/whisper.cpp/build-linux/bin/whisper-cli` or `external/whisper.cpp/build/bin/whisper-cli` on Linux
-4. `external\whisper.cpp\build\bin\whisper-cli.exe` on Windows
-5. `PATH`
+2. app-managed runtime components installed from Settings
+3. bundled desktop package tools, when installed from a Linux or macOS AudraFlow package
+4. `external/whisper.cpp/build-linux/bin/whisper-cli` or `external/whisper.cpp/build/bin/whisper-cli` on Linux
+5. `external\whisper.cpp\build\bin\whisper-cli.exe` on Windows
+6. `PATH`
 
-Release packages include bundled `ffmpeg`, `ffprobe`, `whisper-cli`, and `yt-dlp` for local files and platform page URLs such as YouTube-style links. You can still override them with `AUDRAFLOW_FFMPEG_BIN`, `AUDRAFLOW_FFPROBE_BIN`, `AUDRAFLOW_WHISPER_CLI`, or `AUDRAFLOW_YT_DLP_BIN`.
+Linux and macOS release packages include bundled `ffmpeg`, `ffprobe`, `whisper-cli`, and `yt-dlp` for local files and platform page URLs such as YouTube-style links. Windows users install those tools from Runtime Components in Settings. You can still override them with `AUDRAFLOW_FFMPEG_BIN`, `AUDRAFLOW_FFPROBE_BIN`, `AUDRAFLOW_WHISPER_CLI`, or `AUDRAFLOW_YT_DLP_BIN`.
 
 ## Music / Lyrics Mode
 
@@ -159,10 +166,10 @@ Music transcription can optionally run vocal separation before ASR:
 original media -> Demucs vocals.wav -> whisper.cpp -> AudraFlow editor/export
 ```
 
-Install Demucs with the audio save dependency required by current torchaudio releases:
+In the desktop app, use Runtime Health repair to install Demucs into AudraFlow's isolated Python environment. For manual setup, install Demucs with the audio save dependency required by current torchaudio releases:
 
 ```bash
-python3 -m pip install --user -U demucs torchcodec
+python3 -m pip install -U demucs torchcodec
 ```
 
 The desktop UI shows the vocal separation option only when Music / lyrics mode is enabled. In normal music mode, vocal separation uses the Demucs `vocals.wav` output directly. In Music / lyrics mode with Extreme accuracy enabled, AudraFlow runs two Whisper candidates when possible: original audio and Demucs-isolated vocals. It then uses the vocals candidate as the primary source when it is competitive and fills gaps from the original-audio candidate.

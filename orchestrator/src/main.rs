@@ -988,6 +988,7 @@ fn find_workspace_root() -> Option<PathBuf> {
 fn resolve_whisper_cli() -> Option<PathBuf> {
     whisper_cli_override()
         .map(PathBuf::from)
+        .or_else(|| managed_component_binary("whisper", whisper_cli_binary_name()))
         .or_else(find_bundled_whisper_cli)
         .or_else(|| which::which(whisper_cli_binary_name()).ok())
 }
@@ -1057,6 +1058,44 @@ fn whisper_cli_binary_name() -> &'static str {
         "whisper-cli.exe"
     } else {
         "whisper-cli"
+    }
+}
+
+fn managed_component_binary(component_id: &str, file_name: &str) -> Option<PathBuf> {
+    let path = runtime_app_data_dir()
+        .join("runtime")
+        .join("components")
+        .join(component_id)
+        .join("bin")
+        .join(file_name);
+    path.is_file().then_some(path)
+}
+
+fn runtime_app_data_dir() -> PathBuf {
+    if let Some(path) = std::env::var_os("AUDRAFLOW_APP_DATA_DIR")
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+    {
+        return path;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return std::env::var_os("APPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("com.audraflow.app");
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share"))
+            })
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("com.audraflow.app")
     }
 }
 

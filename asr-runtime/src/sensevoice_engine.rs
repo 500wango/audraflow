@@ -150,7 +150,7 @@ struct SenseVoiceSegment {
 impl SenseVoiceEngine {
     pub fn new(language: impl Into<String>) -> anyhow::Result<Self> {
         let python_bin = resolve_python_bin().context(
-            "Bundled Python was not found. Reinstall AudraFlow or set AUDRAFLOW_PYTHON_BIN for SenseVoice.",
+            "SenseVoice Python was not found. Use Settings to repair AudraFlow's isolated Python environment, install Python 3, or set AUDRAFLOW_PYTHON_BIN.",
         )?;
         Ok(Self {
             python_bin,
@@ -223,7 +223,7 @@ impl SenseVoiceEngine {
         let response: SenseVoiceResponse = serde_json::from_str(json)?;
         if let Some(error) = response.error {
             anyhow::bail!(
-                "{error}. Reinstall AudraFlow or repair the bundled Python runtime."
+                "{error}. Use Settings to repair AudraFlow's isolated Python environment."
             );
         }
         if !output.status.success() {
@@ -361,10 +361,24 @@ fn resolve_python_bin() -> Option<PathBuf> {
     std::env::var_os("AUDRAFLOW_PYTHON_BIN")
         .map(PathBuf::from)
         .filter(|path| !path.as_os_str().is_empty())
+        .or_else(find_managed_python_bin)
         .or_else(find_bundled_python_bin)
         .or_else(|| which::which("python3").ok())
         .or_else(|| which::which("python").ok())
         .or_else(|| which::which("py").ok())
+}
+
+fn find_managed_python_bin() -> Option<PathBuf> {
+    let venv_dir = app_data_dir()
+        .join("runtime")
+        .join("components")
+        .join("python-venv");
+    let candidate = if cfg!(windows) {
+        venv_dir.join("Scripts").join("python.exe")
+    } else {
+        venv_dir.join("bin").join("python")
+    };
+    candidate.is_file().then_some(candidate)
 }
 
 fn find_bundled_python_bin() -> Option<PathBuf> {
@@ -383,6 +397,34 @@ fn find_bundled_python_bin() -> Option<PathBuf> {
         }
     }
     None
+}
+
+fn app_data_dir() -> PathBuf {
+    if let Some(path) = std::env::var_os("AUDRAFLOW_APP_DATA_DIR")
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+    {
+        return path;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return std::env::var_os("APPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("com.audraflow.app");
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share"))
+            })
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("com.audraflow.app")
+    }
 }
 
 fn runtime_search_roots() -> Vec<PathBuf> {
