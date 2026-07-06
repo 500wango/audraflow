@@ -70,7 +70,8 @@
       },
       "nsis": {
         "languages": ["English", "SimpChinese"],
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "installerHooks": "windows/nsis-hooks.nsh"
       }
     },
     "android": {

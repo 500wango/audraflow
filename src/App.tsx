@@ -903,14 +903,15 @@ function AppNavigation({
 
   return (
     <nav className={`app-nav ${className}`.trim()} aria-label={t('nav.primary')}>
-      {navItems.map((item) => (
+      {navItems.map((item, index) => (
         <button
           key={item.page}
           type="button"
           className={currentPage === item.page ? 'active' : ''}
           onClick={() => onNavigate(item.page)}
         >
-          {item.label}
+          <span className="nav-index">{String(index + 1).padStart(2, '0')}</span>
+          <span className="nav-label">{item.label}</span>
           {item.badge !== undefined && (
             <span className="badge">{item.badge}</span>
           )}
@@ -1460,6 +1461,7 @@ function App() {
           {currentPage === 'queue' && (
             <QueuePage
               jobs={jobs}
+              onImport={() => setCurrentPage('import')}
               onJobAction={handleQueueAction}
               onRefreshJobs={refreshJobsFromStorage}
             />
@@ -2147,10 +2149,12 @@ function ImportPage({
 
 function QueuePage({
   jobs,
+  onImport,
   onJobAction,
   onRefreshJobs,
 }: {
   jobs: JobInfo[];
+  onImport: () => void;
   onJobAction: (jobId: string, action: QueueAction) => void;
   onRefreshJobs: () => Promise<number>;
 }) {
@@ -2180,9 +2184,14 @@ function QueuePage({
         <div className="empty-state">
           <h2>{t('queue.emptyTitle')}</h2>
           <p>{t('queue.emptyDescription')}</p>
-          <button className="btn-secondary" type="button" disabled={refreshing} onClick={handleRefresh}>
-            {refreshing ? t('queue.refreshing') : t('queue.refresh')}
-          </button>
+          <div className="empty-state-actions">
+            <button className="btn-primary" type="button" onClick={onImport}>
+              {t('queue.importAction')}
+            </button>
+            <button className="btn-secondary" type="button" disabled={refreshing} onClick={handleRefresh}>
+              {refreshing ? t('queue.refreshing') : t('queue.refresh')}
+            </button>
+          </div>
           {refreshMessage ? <p className="queue-sync-status">{refreshMessage}</p> : null}
         </div>
       </div>
@@ -3676,6 +3685,23 @@ function SettingsPage({
   const [glossaryAliases, setGlossaryAliases] = useState('');
   const [glossaryCategory, setGlossaryCategory] = useState('');
   const installedModelCount = modelSettings?.installedModels.length ?? 0;
+  const settingsNavItems = [
+    { id: 'settings-interface', label: t('settings.interface') },
+    { id: 'settings-runtime', label: t('runtime.sectionTitle') },
+    { id: 'settings-license', label: t('settings.license') },
+    { id: 'settings-model', label: t('model.sectionTitle') },
+    { id: 'settings-glossary', label: t('glossary.sectionTitle') },
+    { id: 'settings-privacy', label: t('telemetry.sectionTitle') },
+  ];
+  const scrollToSetting = useCallback((sectionId: string) => {
+    const target = document.getElementById(sectionId);
+    if (!target) return;
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    target.scrollIntoView({
+      block: 'start',
+      behavior: reduceMotion ? 'auto' : 'smooth',
+    });
+  }, []);
 
   // Load license state on mount
   useEffect(() => {
@@ -4157,8 +4183,20 @@ function SettingsPage({
   return (
     <div className="page settings-page">
       <h2>{t('settings.title')}</h2>
+      <nav className="settings-section-nav" aria-label={t('settings.sectionNav')}>
+        {settingsNavItems.map((item) => (
+          <button
+            key={item.id}
+            className="btn-secondary btn-sm-inline"
+            type="button"
+            onClick={() => scrollToSetting(item.id)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </nav>
 
-      <section className="settings-section">
+      <section id="settings-interface" className="settings-section">
         <h3>{t('settings.interface')}</h3>
         <div className="setting-row">
           <div>
@@ -4175,7 +4213,7 @@ function SettingsPage({
         </div>
       </section>
 
-      <section className="settings-section">
+      <section id="settings-runtime" className="settings-section">
         <div className="settings-section-header">
           <h3>{t('runtime.sectionTitle')}</h3>
           <button
@@ -4248,7 +4286,7 @@ function SettingsPage({
       </section>
 
       {/* License */}
-      <section className="settings-section">
+      <section id="settings-license" className="settings-section">
         <h3>{t('settings.license')}</h3>
         {licenseInfo ? (
           <div className="license-info">
@@ -4301,7 +4339,7 @@ function SettingsPage({
         </div>
       </section>
 
-      <section className="settings-section">
+      <section id="settings-model" className="settings-section">
         <h3>{t('model.sectionTitle')}</h3>
         <div className="model-summary">
           <div className="info-row">
@@ -4540,7 +4578,7 @@ function SettingsPage({
         </div>
       </section>
 
-      <section className="settings-section">
+      <section id="settings-glossary" className="settings-section">
         <div className="settings-section-header">
           <h3>{t('glossary.sectionTitle')}</h3>
           <button
@@ -4652,7 +4690,7 @@ function SettingsPage({
       </section>
 
       {/* Privacy */}
-      <section className="settings-section">
+      <section id="settings-privacy" className="settings-section">
         <h3>{t('telemetry.sectionTitle')}</h3>
         <div className="setting-row">
           <div>

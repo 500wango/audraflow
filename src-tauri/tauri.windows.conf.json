@@ -1,5 +1,9 @@
 {
   "bundle": {
+    "resources": {
+      "../release/default-models/ggml-base.bin": "default-models/ggml-base.bin",
+      "binaries/windows-bin/*": "bin/"
+    },
     "externalBin": [
       "binaries/audraflow-orchestrator",
       "binaries/audraflow-asr-runtime",

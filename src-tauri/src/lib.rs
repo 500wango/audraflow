@@ -2286,10 +2286,12 @@ fn preflight_transcription_dependencies(
     )?;
 
     match asr_engine {
-        "whisper" => ensure_runtime_command_available(
+        "whisper" => ensure_runtime_command_startable(
             whisper_cli_command(),
+            &["--help"],
+            Duration::from_secs(8),
             "Whisper CLI",
-            "Whisper transcription requires whisper-cli. Reinstall AudraFlow or set AUDRAFLOW_WHISPER_CLI.",
+            "Whisper transcription requires a runnable whisper-cli plus its runtime DLLs. Reinstall AudraFlow or set AUDRAFLOW_WHISPER_CLI.",
         ),
         "sensevoice" => ensure_sensevoice_python_available(),
         "funasr" => {
@@ -2370,6 +2372,27 @@ fn ensure_runtime_command_available(
     }
 }
 
+fn ensure_runtime_command_startable(
+    command: PathBuf,
+    args: &[&str],
+    timeout: Duration,
+    label: &str,
+    recovery_hint: &str,
+) -> Result<(), String> {
+    ensure_runtime_command_available(command.clone(), label, recovery_hint)?;
+    let args = args
+        .iter()
+        .map(|value| (*value).to_string())
+        .collect::<Vec<_>>();
+    match run_runtime_probe_with_timeout(&command, &args, timeout) {
+        Ok(_) => Ok(()),
+        Err(error) => Err(format!(
+            "{label} could not be started. {recovery_hint} Checked: {}. Error: {error}",
+            command.display()
+        )),
+    }
+}
+
 fn ensure_sensevoice_python_available() -> Result<(), String> {
     let invocation = resolve_python_invocation().ok_or_else(|| {
         "SenseVoice requires Python 3. Install Python 3 or set AUDRAFLOW_PYTHON_BIN.".to_string()
@@ -2409,7 +2432,11 @@ fn run_runtime_probe_with_timeout(
     args: &[String],
     timeout: Duration,
 ) -> Result<std::process::Output, String> {
-    let mut child = std::process::Command::new(program)
+    let mut command = std::process::Command::new(program);
+    if let Some(parent) = program.parent().filter(|path| !path.as_os_str().is_empty()) {
+        command.current_dir(parent);
+    }
+    let mut child = command
         .args(args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -2756,6 +2783,9 @@ fn find_staged_binary(root: &Path, name: &str) -> Option<PathBuf> {
 
 fn runtime_search_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
+    if let Some(resource_dir) = std::env::var_os("AUDRAFLOW_RESOURCE_DIR") {
+        roots.push(PathBuf::from(resource_dir));
+    }
     if let Ok(exe) = std::env::current_exe() {
         roots.extend(exe.ancestors().map(Path::to_path_buf));
     }
@@ -3181,24 +3211,33 @@ fn find_bundled_command(name: &str) -> Option<PathBuf> {
 }
 
 fn bundled_command_candidates(root: &Path, name: &str) -> Vec<PathBuf> {
+    let windows_name = if cfg!(windows) && !name.ends_with(".exe") {
+        Some(format!("{name}.exe"))
+    } else {
+        None
+    };
     let mut candidates = vec![
-        root.join(name),
         root.join("bin").join(name),
+        root.join("resources").join("bin").join(name),
+        root.join("resources").join(name),
+        root.join(name),
         root.join("external").join("ffmpeg").join("bin").join(name),
         root.join("tools").join("ffmpeg").join("bin").join(name),
     ];
-    if cfg!(windows) {
+    if let Some(windows_name) = windows_name {
         candidates.extend([
-            root.join(format!("{name}.exe")),
-            root.join("bin").join(format!("{name}.exe")),
+            root.join("bin").join(&windows_name),
+            root.join("resources").join("bin").join(&windows_name),
+            root.join("resources").join(&windows_name),
+            root.join(&windows_name),
             root.join("external")
                 .join("ffmpeg")
                 .join("bin")
-                .join(format!("{name}.exe")),
+                .join(&windows_name),
             root.join("tools")
                 .join("ffmpeg")
                 .join("bin")
-                .join(format!("{name}.exe")),
+                .join(&windows_name),
         ]);
     }
     candidates
@@ -3277,7 +3316,7 @@ fn workspace_root_from_current_exe() -> Option<PathBuf> {
 }
 
 #[cfg(target_os = "windows")]
-fn start_orchestrator() {
+fn start_orchestrator(app_handle: &tauri::AppHandle) {
     if pipe_exists() {
         log::info!("Orchestrator pipe already available");
         return;
@@ -3317,6 +3356,9 @@ fn start_orchestrator() {
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
+    if let Ok(resource_dir) = app_handle.path().resource_dir() {
+        command.env("AUDRAFLOW_RESOURCE_DIR", resource_dir);
+    }
 
     #[cfg(target_os = "windows")]
     {
@@ -3332,7 +3374,7 @@ fn start_orchestrator() {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn start_orchestrator() {
+fn start_orchestrator(app_handle: &tauri::AppHandle) {
     if socket_exists() {
         log::info!("Orchestrator socket already available");
         return;
@@ -3382,6 +3424,9 @@ fn start_orchestrator() {
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
+    if let Ok(resource_dir) = app_handle.path().resource_dir() {
+        command.env("AUDRAFLOW_RESOURCE_DIR", resource_dir);
+    }
 
     match command.spawn() {
         Ok(child) => log::info!("Started orchestrator process: {}", child.id()),
@@ -4315,7 +4360,7 @@ pub fn run() {
                 )?;
             }
             log::info!("AudraFlow v0.1.0 started");
-            start_orchestrator();
+            start_orchestrator(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

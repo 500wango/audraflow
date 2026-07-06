@@ -95,13 +95,31 @@ function Test-AudraFlowAppLayout {
     Write-Host ("OK {0} ({1:N0} bytes)" -f $relativePath, $item.Length)
   }
 
-  $dlls = @(
+  $requiredDlls = @(
+    'bin\vcruntime140.dll',
+    'bin\vcruntime140_1.dll',
+    'bin\msvcp140.dll'
+  )
+  foreach ($relativePath in $requiredDlls) {
+    $item = Assert-File -Path (Join-Path $resolved $relativePath) -MinBytes 1024
+    Write-Host ("OK {0} ({1:N0} bytes)" -f $relativePath, $item.Length)
+  }
+
+  $optionalDlls = @(
+    'bin\concrt140.dll',
     'bin\libgcc_s_seh-1.dll',
     'bin\libgomp-1.dll',
     'bin\libstdc++-6.dll',
-    'bin\libwinpthread-1.dll'
+    'bin\libwinpthread-1.dll',
+    'bin\msvcp140_1.dll',
+    'bin\msvcp140_2.dll',
+    'bin\msvcp140_atomic_wait.dll',
+    'bin\msvcp140_codecvt_ids.dll',
+    'bin\vcomp140.dll',
+    'bin\vcruntime140_threads.dll',
+    'bin\whisper.dll'
   )
-  foreach ($relativePath in $dlls) {
+  foreach ($relativePath in $optionalDlls) {
     $path = Join-Path $resolved $relativePath
     if (Test-Path -LiteralPath $path -PathType Leaf) {
       $item = Assert-File -Path $path -MinBytes 1024
@@ -118,9 +136,33 @@ function Test-AudraFlowAppLayout {
   return $resolved
 }
 
+function Test-NsisHookConfig {
+  param([string]$Workspace)
+
+  Write-Step 'Checking NSIS runtime installer hook'
+  $configPath = Join-Path $Workspace 'src-tauri\tauri.conf.json'
+  $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+  $hookRelativePath = $config.bundle.windows.nsis.installerHooks
+  if (-not $hookRelativePath) {
+    throw 'Missing bundle.windows.nsis.installerHooks in src-tauri\tauri.conf.json'
+  }
+
+  $hookPath = Join-Path (Join-Path $Workspace 'src-tauri') $hookRelativePath
+  Assert-File -Path $hookPath -MinBytes 128 | Out-Null
+  $hookText = Get-Content -LiteralPath $hookPath -Raw
+  if ($hookText -notmatch 'vc_redist\.x64\.exe') {
+    throw "NSIS installer hook does not download the x64 VC++ Redistributable: $hookPath"
+  }
+  if ($hookText -notmatch 'SOFTWARE\\Microsoft\\VisualStudio\\14\.0\\VC\\Runtimes\\x64') {
+    throw "NSIS installer hook does not check the x64 VC++ Runtime registry key: $hookPath"
+  }
+  Write-Host "OK $hookRelativePath"
+}
+
 Assert-WindowsHost
 $workspace = Resolve-WorkspaceRoot
 Set-Location $workspace
+Test-NsisHookConfig -Workspace $workspace
 
 if (-not $PortableDir) {
   $PortableDir = Join-Path $workspace 'release\windows-portable\AudraFlow'

@@ -170,7 +170,7 @@ const translations: Record<AppLanguage, TranslationMap> = {
     'runtime.repairing': 'Repairing...',
     'runtime.repairingItem': 'Repairing {item}...',
 
-    'error.desktopRequired': 'This action must run in the AudraFlow desktop app, not a browser preview. Detail: {detail}',
+    'error.desktopRequired': 'This action must run in the AudraFlow desktop app, not a browser preview.',
     'error.dialogAcl': 'The desktop save dialog is not allowed by the current app permissions. Rebuild or reinstall AudraFlow with the latest Tauri permissions. Detail: {detail}',
     'error.ffmpegMissing': 'FFmpeg is required for media decoding. Reinstall AudraFlow or set AUDRAFLOW_FFMPEG_BIN. Detail: {detail}',
     'error.ffprobeMissing': 'FFprobe is required for media duration and metadata detection. Reinstall AudraFlow or set AUDRAFLOW_FFPROBE_BIN. Detail: {detail}',
@@ -265,6 +265,7 @@ const translations: Record<AppLanguage, TranslationMap> = {
 
     'queue.emptyTitle': 'No jobs yet',
     'queue.emptyDescription': 'Go to Import to add audio files for transcription.',
+    'queue.importAction': 'Import files',
     'queue.title': 'Job Queue ({count})',
     'queue.note':
       'Queued means the file is imported and waiting for the transcription runtime. Import and download progress appears in each job log.',
@@ -417,6 +418,7 @@ const translations: Record<AppLanguage, TranslationMap> = {
     'glossary.desktopRequired': 'Glossary management requires the Tauri desktop app.',
 
     'settings.title': 'Settings',
+    'settings.sectionNav': 'Settings sections',
     'settings.interface': 'Interface',
     'settings.license': 'License',
     'settings.status': 'Status',
@@ -616,7 +618,7 @@ const translations: Record<AppLanguage, TranslationMap> = {
     'runtime.repairing': '修复中...',
     'runtime.repairingItem': '正在修复 {item}...',
 
-    'error.desktopRequired': '此操作必须在 AudraFlow 桌面应用中运行，不能在浏览器预览页执行。详情：{detail}',
+    'error.desktopRequired': '此操作必须在 AudraFlow 桌面应用中运行，不能在浏览器预览页执行。',
     'error.dialogAcl': '当前应用权限不允许打开桌面保存对话框。请使用最新 Tauri 权限重新构建或重新安装 AudraFlow。详情：{detail}',
     'error.ffmpegMissing': '媒体解码需要 FFmpeg。请重新安装 AudraFlow，或设置 AUDRAFLOW_FFMPEG_BIN。详情：{detail}',
     'error.ffprobeMissing': '读取媒体时长和元数据需要 FFprobe。请重新安装 AudraFlow，或设置 AUDRAFLOW_FFPROBE_BIN。详情：{detail}',
@@ -710,6 +712,7 @@ const translations: Record<AppLanguage, TranslationMap> = {
 
     'queue.emptyTitle': '还没有任务',
     'queue.emptyDescription': '去导入页添加音频文件开始转写。',
+    'queue.importAction': '去导入',
     'queue.title': '任务队列（{count}）',
     'queue.note': '“已排队”表示文件已导入，正在等待转写运行时处理。导入和下载进度会显示在每个任务日志中。',
     'queue.refresh': '刷新',
@@ -861,6 +864,7 @@ const translations: Record<AppLanguage, TranslationMap> = {
     'glossary.desktopRequired': '术语库管理需要 Tauri 桌面应用。',
 
     'settings.title': '设置',
+    'settings.sectionNav': '设置分组',
     'settings.interface': '界面',
     'settings.license': '许可证',
     'settings.status': '状态',

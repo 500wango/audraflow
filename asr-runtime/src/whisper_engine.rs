@@ -80,7 +80,7 @@ impl WhisperEngine {
         let output_path = audio_path.with_extension("json");
         let output_prefix = output_path.with_extension("");
 
-        let mut command = Command::new(&self.whisper_cli);
+        let mut command = command_in_binary_dir(&self.whisper_cli);
         command
             .arg("-m")
             .arg(model_path)
@@ -172,7 +172,7 @@ fn normalize_optional_setting(value: Option<String>) -> Option<String> {
 }
 
 fn supports_suppress_regex(whisper_cli: &Path) -> bool {
-    Command::new(whisper_cli)
+    command_in_binary_dir(whisper_cli)
         .arg("--help")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -182,6 +182,14 @@ fn supports_suppress_regex(whisper_cli: &Path) -> bool {
                 || String::from_utf8_lossy(&output.stderr).contains("--suppress-regex")
         })
         .unwrap_or(false)
+}
+
+fn command_in_binary_dir(program: &Path) -> Command {
+    let mut command = Command::new(program);
+    if let Some(parent) = program.parent().filter(|path| !path.as_os_str().is_empty()) {
+        command.current_dir(parent);
+    }
+    command
 }
 
 fn ffprobe_command() -> PathBuf {
@@ -240,6 +248,9 @@ fn whisper_cli_env_override() -> Option<PathBuf> {
 
 fn find_bundled_whisper_cli() -> Option<PathBuf> {
     let mut roots = Vec::new();
+    if let Some(resource_dir) = std::env::var_os("AUDRAFLOW_RESOURCE_DIR") {
+        roots.push(PathBuf::from(resource_dir));
+    }
     if let Ok(exe) = std::env::current_exe() {
         roots.extend(exe.ancestors().map(Path::to_path_buf));
     }
@@ -260,8 +271,12 @@ fn find_bundled_whisper_cli() -> Option<PathBuf> {
 
 fn whisper_cli_candidates(root: &Path) -> Vec<PathBuf> {
     vec![
-        root.join(whisper_cli_binary_name()),
         root.join("bin").join(whisper_cli_binary_name()),
+        root.join("resources")
+            .join("bin")
+            .join(whisper_cli_binary_name()),
+        root.join("resources").join(whisper_cli_binary_name()),
+        root.join(whisper_cli_binary_name()),
         root.join("external")
             .join("whisper.cpp")
             .join("build-linux")

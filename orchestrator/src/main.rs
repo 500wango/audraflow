@@ -1002,6 +1002,9 @@ fn whisper_cli_override() -> Option<String> {
 
 fn find_bundled_whisper_cli() -> Option<PathBuf> {
     let mut roots = Vec::new();
+    if let Some(resource_dir) = std::env::var_os("AUDRAFLOW_RESOURCE_DIR") {
+        roots.push(PathBuf::from(resource_dir));
+    }
     if let Ok(exe) = std::env::current_exe() {
         roots.extend(exe.ancestors().map(Path::to_path_buf));
     }
@@ -1022,8 +1025,12 @@ fn find_bundled_whisper_cli() -> Option<PathBuf> {
 
 fn whisper_cli_candidates(root: &Path) -> Vec<PathBuf> {
     vec![
-        root.join(whisper_cli_binary_name()),
         root.join("bin").join(whisper_cli_binary_name()),
+        root.join("resources")
+            .join("bin")
+            .join(whisper_cli_binary_name()),
+        root.join("resources").join(whisper_cli_binary_name()),
+        root.join(whisper_cli_binary_name()),
         root.join("external")
             .join("whisper.cpp")
             .join("build-linux")
