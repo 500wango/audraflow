@@ -29,6 +29,12 @@ const optionalWindowsRuntimeDllNames = [
   'vcomp140.dll',
   'vcruntime140_threads.dll',
 ];
+const requiredWindowsWhisperDllNames = [
+  'whisper.dll',
+  'ggml.dll',
+  'ggml-base.dll',
+  'ggml-cpu.dll',
+];
 const vcRuntimeFamilies = [
   'Microsoft.VC143.CRT',
   'Microsoft.VC142.CRT',
@@ -117,9 +123,9 @@ const windowsToolSources = [
   {
     bundleName: 'whisper-cli',
     sources: [
-      join(workspaceRoot, 'release', 'windows-portable', 'AudraFlow', 'bin', 'whisper-cli.exe'),
-      join(workspaceRoot, 'external', 'whisper.cpp', 'build', 'bin', 'whisper-cli.exe'),
       join(workspaceRoot, 'external', 'whisper.cpp', 'build', 'bin', 'Release', 'whisper-cli.exe'),
+      join(workspaceRoot, 'external', 'whisper.cpp', 'build', 'bin', 'whisper-cli.exe'),
+      join(workspaceRoot, 'release', 'windows-portable', 'AudraFlow', 'bin', 'whisper-cli.exe'),
     ],
   },
   {
@@ -264,6 +270,9 @@ async function copySiblingDlls(source, destinationDir) {
   const dirName = basename(sourceDir).toLowerCase();
   if (dirName === 'release' || dirName === 'debug') {
     dirs.push(dirname(sourceDir));
+  } else {
+    dirs.push(join(sourceDir, 'Release'));
+    dirs.push(join(sourceDir, 'Debug'));
   }
 
   const seen = new Set();
@@ -456,6 +465,52 @@ async function stageWindowsRuntimeDlls() {
   }
 }
 
+async function stageWindowsWhisperDlls() {
+  const searchRoots = [
+    join(workspaceRoot, 'external', 'whisper.cpp', 'build', 'bin', 'Release'),
+    join(workspaceRoot, 'external', 'whisper.cpp', 'build', 'bin'),
+    join(workspaceRoot, 'external', 'whisper.cpp', 'build'),
+    join(workspaceRoot, 'release', 'windows-portable', 'AudraFlow', 'bin'),
+  ];
+
+  for (const name of requiredWindowsWhisperDllNames) {
+    try {
+      await ensureFile(join(windowsResourceBinDir, name));
+      continue;
+    } catch {
+      // Search below.
+    }
+
+    let found = null;
+    for (const root of searchRoots) {
+      found = await findFileRecursive(root, name, 6);
+      if (found) {
+        break;
+      }
+    }
+    if (found) {
+      await copyIntoDir(found, windowsResourceBinDir, name);
+    }
+  }
+}
+
+async function assertWindowsWhisperDlls() {
+  const missing = [];
+  for (const name of requiredWindowsWhisperDllNames) {
+    try {
+      await ensureFile(join(windowsResourceBinDir, name));
+    } catch {
+      missing.push(name);
+    }
+  }
+
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing required whisper.cpp DLL(s): ${missing.join(', ')}. These DLLs must be staged beside bin\\whisper-cli.exe.`,
+    );
+  }
+}
+
 async function stageWindowsResourceTool(tool) {
   const source = await findExistingFile(tool.sources);
   if (!source) {
@@ -499,7 +554,9 @@ if (targetTriple.includes('linux')) {
     await stageExternalTool(tool);
     await stageWindowsResourceTool(tool);
   }
+  await stageWindowsWhisperDlls();
   await stageWindowsRuntimeDlls();
+  await assertWindowsWhisperDlls();
 } else if (isMacosTarget) {
   for (const tool of macosToolSources) {
     await stageExternalTool(tool);

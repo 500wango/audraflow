@@ -98,7 +98,11 @@ function Test-AudraFlowAppLayout {
   $requiredDlls = @(
     'bin\vcruntime140.dll',
     'bin\vcruntime140_1.dll',
-    'bin\msvcp140.dll'
+    'bin\msvcp140.dll',
+    'bin\whisper.dll',
+    'bin\ggml.dll',
+    'bin\ggml-base.dll',
+    'bin\ggml-cpu.dll'
   )
   foreach ($relativePath in $requiredDlls) {
     $item = Assert-File -Path (Join-Path $resolved $relativePath) -MinBytes 1024
@@ -116,8 +120,7 @@ function Test-AudraFlowAppLayout {
     'bin\msvcp140_atomic_wait.dll',
     'bin\msvcp140_codecvt_ids.dll',
     'bin\vcomp140.dll',
-    'bin\vcruntime140_threads.dll',
-    'bin\whisper.dll'
+    'bin\vcruntime140_threads.dll'
   )
   foreach ($relativePath in $optionalDlls) {
     $path = Join-Path $resolved $relativePath
