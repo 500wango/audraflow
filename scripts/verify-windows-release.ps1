@@ -156,6 +156,9 @@ function Test-NsisHookConfig {
   if ($hookText -notmatch 'SOFTWARE\\Microsoft\\VisualStudio\\14\.0\\VC\\Runtimes\\x64') {
     throw "NSIS installer hook does not check the x64 VC++ Runtime registry key: $hookPath"
   }
+  if ($hookText -match "(?m)^\s*ExecWait\s+'") {
+    throw "NSIS ExecWait commands must use backtick-quoted command lines: $hookPath"
+  }
   Write-Host "OK $hookRelativePath"
 }
 

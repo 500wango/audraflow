@@ -9,10 +9,10 @@
     DetailPrint "Microsoft Visual C++ Runtime x64 was not detected."
     DetailPrint "Downloading Microsoft Visual C++ Redistributable x64..."
     Delete "$TEMP\audraflow-vc_redist.x64.exe"
-    ExecWait 'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri ''https://aka.ms/vc14/vc_redist.x64.exe'' -OutFile ''$TEMP\audraflow-vc_redist.x64.exe''; exit 0 } catch { exit 1 }"' $R1
+    ExecWait `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri 'https://aka.ms/vc14/vc_redist.x64.exe' -OutFile '$TEMP\audraflow-vc_redist.x64.exe'; exit 0 } catch { exit 1 }"` $R1
     ${If} $R1 == 0
       DetailPrint "Installing Microsoft Visual C++ Redistributable x64..."
-      ExecWait '"$TEMP\audraflow-vc_redist.x64.exe" /install /quiet /norestart' $R2
+      ExecWait `"$TEMP\audraflow-vc_redist.x64.exe" /install /quiet /norestart` $R2
       ${If} $R2 == 0
         DetailPrint "Microsoft Visual C++ Redistributable x64 installed."
       ${ElseIf} $R2 == 3010
