@@ -9,7 +9,7 @@ on:
         default: false
         type: boolean
       release_tag:
-        description: "Release tag to create/update when publishing manually, for example v1.0.0"
+        description: "Release tag to create/update when publishing manually; defaults to package.json version, for example v1.0.0"
         required: false
         type: string
   push:
@@ -118,8 +118,7 @@ jobs:
           fi
 
           if [[ "$manual_publish" == "true" && -z "$release_tag" ]]; then
-            echo "release_tag is required when publish_release is enabled for a manual workflow run." >&2
-            exit 1
+            release_tag="v$(node -p "require('./package.json').version")"
           fi
 
           publish=false

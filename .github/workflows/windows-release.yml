@@ -9,7 +9,7 @@ on:
         default: false
         type: boolean
       release_tag:
-        description: "Release tag to create/update when publishing manually, for example v1.0.0"
+        description: "Release tag to create/update when publishing manually; defaults to package.json version, for example v1.0.0"
         required: false
         type: string
   push:
@@ -115,7 +115,8 @@ jobs:
           }
 
           if ($manualPublish -and [string]::IsNullOrWhiteSpace($releaseTag)) {
-            throw "release_tag is required when publish_release is enabled for a manual workflow run."
+            $packageVersion = (Get-Content -Raw package.json | ConvertFrom-Json).version
+            $releaseTag = "v$packageVersion"
           }
 
           $publish = $isTag -or $manualPublish
