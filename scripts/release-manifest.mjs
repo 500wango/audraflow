@@ -4,16 +4,36 @@ import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { basename, join, relative } from 'node:path';
 
 const workspaceRoot = process.cwd();
-const args = new Set(process.argv.slice(2));
+const rawArgs = process.argv.slice(2);
+const args = new Set(rawArgs);
 const verify = args.has('--verify');
 const requireLinux = args.has('--require-linux');
 const requireWindows = args.has('--require-windows');
+const requireMacos = args.has('--require-macos');
+const artifactSet = argValue('--artifact-set');
 const packageJson = JSON.parse(await readFile(join(workspaceRoot, 'package.json'), 'utf8'));
 const version = packageJson.version;
 const releaseDir = join(workspaceRoot, 'release');
 const bundleDir = join(workspaceRoot, 'target', 'release', 'bundle');
-const manifestPath = join(releaseDir, `AudraFlow_${version}_manifest.json`);
-const checksumsPath = join(releaseDir, 'SHA256SUMS');
+const manifestPath = join(
+  releaseDir,
+  artifactSet
+    ? `AudraFlow_${version}_${artifactSet}_manifest.json`
+    : `AudraFlow_${version}_manifest.json`,
+);
+const checksumsPath = join(releaseDir, artifactSet ? `SHA256SUMS.${artifactSet}` : 'SHA256SUMS');
+
+function argValue(name) {
+  const index = rawArgs.indexOf(name);
+  if (index === -1) {
+    return null;
+  }
+  const value = rawArgs[index + 1];
+  if (!value || value.startsWith('--')) {
+    throw new Error(`${name} requires a value`);
+  }
+  return value;
+}
 
 function toRelativePath(path) {
   return relative(workspaceRoot, path).replaceAll('\\', '/');
@@ -28,6 +48,7 @@ function isInstallerArtifact(fileName) {
     fileName.endsWith('.deb') ||
     fileName.endsWith('.rpm') ||
     fileName.endsWith('.AppImage') ||
+    fileName.endsWith('.dmg') ||
     fileName.endsWith('.msi') ||
     fileName.endsWith('.exe')
   );
@@ -37,6 +58,7 @@ function artifactType(fileName) {
   if (fileName.endsWith('.tar.gz')) return 'portable-tar-gz';
   if (fileName.endsWith('.zip')) return 'portable-zip';
   if (fileName.endsWith('.AppImage')) return 'appimage';
+  if (fileName.endsWith('.dmg')) return 'dmg';
   if (fileName.endsWith('.deb')) return 'deb';
   if (fileName.endsWith('.rpm')) return 'rpm';
   if (fileName.endsWith('.msi')) return 'msi';
@@ -138,6 +160,9 @@ function assertRequiredArtifacts(manifest) {
     if (!manifest.artifacts.some((artifact) => artifact.path.includes('/nsis/') || artifact.fileName.toLowerCase().includes('setup'))) {
       missing.push('nsis setup exe');
     }
+  }
+  if (requireMacos) {
+    if (!types.has('dmg')) missing.push('dmg');
   }
   if (missing.length > 0) {
     throw new Error(`Missing required release artifact(s): ${missing.join(', ')}`);

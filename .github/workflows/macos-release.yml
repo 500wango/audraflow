@@ -1,0 +1,157 @@
+name: macOS Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "Upload the macOS artifacts to a GitHub Release"
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        description: "Release tag to create/update when publishing manually, for example v1.0.0"
+        required: false
+        type: string
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    name: Build macOS packages
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.19.5"
+          cache: npm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Install macOS build dependencies
+        run: |
+          brew install ffmpeg
+
+      - name: Build whisper.cpp CLI
+        run: |
+          cmake -S external/whisper.cpp -B external/whisper.cpp/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DGGML_NATIVE=OFF
+          cmake --build external/whisper.cpp/build --config Release --target whisper-cli --parallel
+
+          if [[ -f external/whisper.cpp/build/bin/Release/whisper-cli && ! -f external/whisper.cpp/build/bin/whisper-cli ]]; then
+            cp external/whisper.cpp/build/bin/Release/whisper-cli external/whisper.cpp/build/bin/whisper-cli
+          fi
+
+          test -f external/whisper.cpp/build/bin/whisper-cli
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Build macOS packages
+        run: npm run desktop:build:macos
+
+      - name: Zip macOS app bundle
+        run: |
+          mkdir -p release
+          app_path="$(find target/release/bundle/macos -maxdepth 1 -name '*.app' -type d | head -n 1)"
+          if [[ -z "$app_path" ]]; then
+            echo "No .app bundle found under target/release/bundle/macos" >&2
+            exit 1
+          fi
+          ditto -c -k --keepParent "$app_path" "release/AudraFlow-macos-app.zip"
+
+      - name: Generate release manifest
+        run: npm run release:manifest -- --require-macos --artifact-set macos
+
+      - name: Verify release manifest
+        run: npm run release:manifest:verify -- --require-macos --artifact-set macos
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: AudraFlow-macos
+          if-no-files-found: error
+          path: |
+            target/release/bundle/dmg/*.dmg
+            release/AudraFlow-macos-app.zip
+            release/AudraFlow_*_macos_manifest.json
+            release/SHA256SUMS.macos
+
+      - name: Resolve release publishing
+        id: release
+        env:
+          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/') }}
+          REF_NAME: ${{ github.ref_name }}
+          PUBLISH_RELEASE: ${{ inputs.publish_release || 'false' }}
+          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
+        run: |
+          is_tag="$(echo "$IS_TAG" | tr '[:upper:]' '[:lower:]')"
+          manual_publish="$(echo "$PUBLISH_RELEASE" | tr '[:upper:]' '[:lower:]')"
+          release_tag="$RELEASE_TAG_INPUT"
+
+          if [[ "$is_tag" == "true" ]]; then
+            release_tag="$REF_NAME"
+          fi
+
+          if [[ "$manual_publish" == "true" && -z "$release_tag" ]]; then
+            echo "release_tag is required when publish_release is enabled for a manual workflow run." >&2
+            exit 1
+          fi
+
+          publish=false
+          if [[ "$is_tag" == "true" || "$manual_publish" == "true" ]]; then
+            publish=true
+          fi
+
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Upload assets to GitHub Release
+        if: steps.release.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          mapfile -t assets < <(
+            find target/release/bundle/dmg -type f -name '*.dmg' -print
+            find release -type f \( \
+              -name 'AudraFlow-macos-app.zip' -o \
+              -name 'AudraFlow_*_macos_manifest.json' -o \
+              -name 'SHA256SUMS.macos' \
+            \) -print
+          )
+
+          if [[ "${#assets[@]}" -eq 0 ]]; then
+            echo "No release assets were found." >&2
+            exit 1
+          fi
+
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --title "AudraFlow $RELEASE_TAG" --notes "Automated macOS release build." \
+              || gh release view "$RELEASE_TAG" >/dev/null
+          fi
+
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber

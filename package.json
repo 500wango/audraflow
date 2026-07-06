@@ -16,6 +16,7 @@
     "stage:sidecars": "node scripts/stage-sidecars.mjs",
     "desktop:build": "tauri build",
     "desktop:build:linux": "tauri build --bundles deb,rpm,appimage",
+    "desktop:build:macos": "tauri build --bundles app,dmg",
     "desktop:build:windows": "tauri build --bundles nsis,msi",
     "release:manifest": "node scripts/release-manifest.mjs",
     "release:manifest:verify": "node scripts/release-manifest.mjs --verify",

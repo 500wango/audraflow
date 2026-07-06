@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 const workspaceRoot = process.cwd();
 const targetTriple = process.env.AUDRAFLOW_TARGET_TRIPLE || process.env.CARGO_BUILD_TARGET || detectHostTriple();
 const isWindowsTarget = targetTriple.includes('windows');
+const isMacosTarget = targetTriple.includes('apple-darwin') || targetTriple.includes('darwin');
 const extension = isWindowsTarget ? '.exe' : '';
 const targetDir = process.env.CARGO_TARGET_DIR
   ? process.env.CARGO_TARGET_DIR
@@ -39,6 +40,8 @@ const linuxToolSources = [
     sources: [
       join(workspaceRoot, 'release', 'linux-portable', 'AudraFlow', 'bin', 'ffmpeg'),
       join(workspaceRoot, 'external', 'ffmpeg', 'bin', 'ffmpeg'),
+      '/usr/local/bin/ffmpeg',
+      '/usr/bin/ffmpeg',
     ],
   },
   {
@@ -46,6 +49,8 @@ const linuxToolSources = [
     sources: [
       join(workspaceRoot, 'release', 'linux-portable', 'AudraFlow', 'bin', 'ffprobe'),
       join(workspaceRoot, 'external', 'ffmpeg', 'bin', 'ffprobe'),
+      '/usr/local/bin/ffprobe',
+      '/usr/bin/ffprobe',
     ],
   },
   {
@@ -95,6 +100,34 @@ const windowsToolSources = [
     bundleName: 'ffprobe',
     sources: [
       join(workspaceRoot, 'release', 'windows-portable', 'AudraFlow', 'bin', 'ffprobe.exe'),
+    ],
+  },
+];
+const macosToolSources = [
+  {
+    bundleName: 'whisper-cli',
+    sources: [
+      join(workspaceRoot, 'release', 'macos-portable', 'AudraFlow', 'bin', 'whisper-cli'),
+      join(workspaceRoot, 'external', 'whisper.cpp', 'build', 'bin', 'whisper-cli'),
+      join(workspaceRoot, 'external', 'whisper.cpp', 'build', 'bin', 'Release', 'whisper-cli'),
+      '/opt/homebrew/bin/whisper-cli',
+      '/usr/local/bin/whisper-cli',
+    ],
+  },
+  {
+    bundleName: 'ffmpeg',
+    sources: [
+      join(workspaceRoot, 'release', 'macos-portable', 'AudraFlow', 'bin', 'ffmpeg'),
+      '/opt/homebrew/bin/ffmpeg',
+      '/usr/local/bin/ffmpeg',
+    ],
+  },
+  {
+    bundleName: 'ffprobe',
+    sources: [
+      join(workspaceRoot, 'release', 'macos-portable', 'AudraFlow', 'bin', 'ffprobe'),
+      '/opt/homebrew/bin/ffprobe',
+      '/usr/local/bin/ffprobe',
     ],
   },
 ];
@@ -199,6 +232,10 @@ if (targetTriple.includes('linux')) {
   }
 } else if (targetTriple.includes('windows')) {
   for (const tool of windowsToolSources) {
+    await stageExternalTool(tool);
+  }
+} else if (isMacosTarget) {
+  for (const tool of macosToolSources) {
     await stageExternalTool(tool);
   }
 }

@@ -81,10 +81,10 @@ jobs:
         run: npm run desktop:build:windows
 
       - name: Generate release manifest
-        run: npm run release:manifest -- --require-windows
+        run: npm run release:manifest -- --require-windows --artifact-set windows
 
       - name: Verify release manifest
-        run: npm run release:manifest:verify -- --require-windows
+        run: npm run release:manifest:verify -- --require-windows --artifact-set windows
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -94,8 +94,8 @@ jobs:
           path: |
             target/release/bundle/nsis/*.exe
             target/release/bundle/msi/*.msi
-            release/AudraFlow_*_manifest.json
-            release/SHA256SUMS
+            release/AudraFlow_*_windows_manifest.json
+            release/SHA256SUMS.windows
 
       - name: Resolve release publishing
         id: release
@@ -132,8 +132,8 @@ jobs:
           $assets = @()
           $assets += Get-ChildItem -LiteralPath "target\release\bundle\nsis" -Filter "*.exe" -File -ErrorAction SilentlyContinue
           $assets += Get-ChildItem -LiteralPath "target\release\bundle\msi" -Filter "*.msi" -File -ErrorAction SilentlyContinue
-          $assets += Get-ChildItem -LiteralPath "release" -Filter "AudraFlow_*_manifest.json" -File -ErrorAction SilentlyContinue
-          $assets += Get-Item -LiteralPath "release\SHA256SUMS" -ErrorAction SilentlyContinue
+          $assets += Get-ChildItem -LiteralPath "release" -Filter "AudraFlow_*_windows_manifest.json" -File -ErrorAction SilentlyContinue
+          $assets += Get-Item -LiteralPath "release\SHA256SUMS.windows" -ErrorAction SilentlyContinue
 
           if (-not $assets -or $assets.Count -eq 0) {
             throw "No release assets were found."
@@ -142,6 +142,12 @@ jobs:
           gh release view $env:RELEASE_TAG *> $null
           if ($LASTEXITCODE -ne 0) {
             gh release create $env:RELEASE_TAG --title "AudraFlow $env:RELEASE_TAG" --notes "Automated Windows release build."
+            if ($LASTEXITCODE -ne 0) {
+              gh release view $env:RELEASE_TAG *> $null
+              if ($LASTEXITCODE -ne 0) {
+                throw "Could not create or find release $env:RELEASE_TAG"
+              }
+            }
           }
 
           $assetPaths = $assets | ForEach-Object { $_.FullName }
