@@ -92,6 +92,7 @@ fn find_dev_or_portable_tool(name: &str) -> Option<PathBuf> {
 
 fn find_staged_binary(root: &Path, name: &str) -> Option<PathBuf> {
     let stem = name.strip_suffix(".exe").unwrap_or(name);
+    let prefixed_stem = format!("audraflow-{stem}");
     for dir in [
         root.join("src-tauri").join("binaries"),
         root.join("binaries"),
@@ -105,7 +106,10 @@ fn find_staged_binary(root: &Path, name: &str) -> Option<PathBuf> {
                 let Some(file_name) = path.file_name().and_then(|value| value.to_str()) else {
                     continue;
                 };
-                if file_name == name || file_name.starts_with(&format!("{stem}-")) {
+                if file_name == name
+                    || file_name.starts_with(&format!("{stem}-"))
+                    || file_name.starts_with(&format!("{prefixed_stem}-"))
+                {
                     return Some(path);
                 }
             }

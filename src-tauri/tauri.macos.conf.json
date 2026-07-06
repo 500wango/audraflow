@@ -3,10 +3,10 @@
     "externalBin": [
       "binaries/audraflow-orchestrator",
       "binaries/audraflow-asr-runtime",
-      "binaries/whisper-cli",
-      "binaries/ffmpeg",
-      "binaries/ffprobe",
-      "binaries/yt-dlp"
+      "binaries/audraflow-whisper-cli",
+      "binaries/audraflow-ffmpeg",
+      "binaries/audraflow-ffprobe",
+      "binaries/audraflow-yt-dlp"
     ]
   }
 }

@@ -1,4 +1,4 @@
-import { copyFile, mkdir, stat } from 'node:fs/promises';
+import { copyFile, mkdir, readdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
@@ -24,14 +24,14 @@ console.log(`cargo release directory: ${releaseDir}`);
 
 const linuxToolSources = [
   {
-    bundleName: 'whisper-cli',
+    bundleName: 'audraflow-whisper-cli',
     sources: [
       join(workspaceRoot, 'release', 'linux-portable', 'AudraFlow', 'bin', 'whisper-cli'),
       join(workspaceRoot, 'external', 'whisper.cpp', 'build-linux', 'bin', 'whisper-cli'),
     ],
   },
   {
-    bundleName: 'llama-funasr-cli',
+    bundleName: 'audraflow-llama-funasr-cli',
     optional: true,
     sources: [
       join(workspaceRoot, 'release', 'linux-portable', 'AudraFlow', 'bin', 'llama-funasr-cli'),
@@ -40,7 +40,7 @@ const linuxToolSources = [
     ],
   },
   {
-    bundleName: 'ffmpeg',
+    bundleName: 'audraflow-ffmpeg',
     sources: [
       join(workspaceRoot, 'release', 'linux-portable', 'AudraFlow', 'bin', 'ffmpeg'),
       join(workspaceRoot, 'external', 'ffmpeg', 'bin', 'ffmpeg'),
@@ -49,7 +49,7 @@ const linuxToolSources = [
     ],
   },
   {
-    bundleName: 'ffprobe',
+    bundleName: 'audraflow-ffprobe',
     sources: [
       join(workspaceRoot, 'release', 'linux-portable', 'AudraFlow', 'bin', 'ffprobe'),
       join(workspaceRoot, 'external', 'ffmpeg', 'bin', 'ffprobe'),
@@ -58,7 +58,7 @@ const linuxToolSources = [
     ],
   },
   {
-    bundleName: 'yt-dlp',
+    bundleName: 'audraflow-yt-dlp',
     sources: [
       join(workspaceRoot, 'release', 'linux-portable', 'AudraFlow', 'bin', 'yt-dlp'),
       '/usr/local/bin/yt-dlp',
@@ -97,7 +97,7 @@ const linuxToolSources = [
 
 const macosToolSources = [
   {
-    bundleName: 'whisper-cli',
+    bundleName: 'audraflow-whisper-cli',
     sources: [
       join(workspaceRoot, 'release', 'macos-portable', 'AudraFlow', 'bin', 'whisper-cli'),
       join(workspaceRoot, 'external', 'whisper.cpp', 'build', 'bin', 'whisper-cli'),
@@ -107,7 +107,7 @@ const macosToolSources = [
     ],
   },
   {
-    bundleName: 'ffmpeg',
+    bundleName: 'audraflow-ffmpeg',
     sources: [
       join(workspaceRoot, 'release', 'macos-portable', 'AudraFlow', 'bin', 'ffmpeg'),
       '/opt/homebrew/bin/ffmpeg',
@@ -115,7 +115,7 @@ const macosToolSources = [
     ],
   },
   {
-    bundleName: 'ffprobe',
+    bundleName: 'audraflow-ffprobe',
     sources: [
       join(workspaceRoot, 'release', 'macos-portable', 'AudraFlow', 'bin', 'ffprobe'),
       '/opt/homebrew/bin/ffprobe',
@@ -123,7 +123,7 @@ const macosToolSources = [
     ],
   },
   {
-    bundleName: 'yt-dlp',
+    bundleName: 'audraflow-yt-dlp',
     sources: [
       join(workspaceRoot, 'release', 'macos-portable', 'AudraFlow', 'bin', 'yt-dlp'),
       '/opt/homebrew/bin/yt-dlp',
@@ -203,6 +203,20 @@ async function stageOptionalExternalTool(tool) {
   console.log(`staged ${destination}`);
 }
 
+async function clearStagedTargetBinaries() {
+  let entries = [];
+  try {
+    entries = await readdir(binariesDir);
+  } catch {
+    return;
+  }
+
+  const targetSuffix = `-${targetTriple}${extension}`;
+  await Promise.all(entries
+    .filter((entry) => entry.endsWith(targetSuffix))
+    .map((entry) => rm(join(binariesDir, entry), { force: true })));
+}
+
 const cargoArgs = ['build', '--release'];
 if (process.env.AUDRAFLOW_TARGET_TRIPLE || process.env.CARGO_BUILD_TARGET) {
   cargoArgs.push('--target', targetTriple);
@@ -213,6 +227,7 @@ for (const sidecar of sidecars) {
 
 run('cargo', cargoArgs);
 await mkdir(binariesDir, { recursive: true });
+await clearStagedTargetBinaries();
 
 for (const sidecar of sidecars) {
   const source = join(releaseDir, `${sidecar.binaryName}${extension}`);

@@ -326,16 +326,24 @@ fn find_bundled_command(name: &str) -> Option<PathBuf> {
 }
 
 fn bundled_command_candidates(root: &Path, name: &str) -> Vec<PathBuf> {
+    let prefixed_name = format!("audraflow-{name}");
     let windows_name = if cfg!(windows) && !name.ends_with(".exe") {
         Some(format!("{name}.exe"))
     } else {
         None
     };
+    let prefixed_windows_name = windows_name
+        .as_ref()
+        .map(|value| format!("audraflow-{value}"));
     let mut candidates = vec![
         root.join("bin").join(name),
+        root.join("bin").join(&prefixed_name),
         root.join("resources").join("bin").join(name),
+        root.join("resources").join("bin").join(&prefixed_name),
         root.join("resources").join(name),
+        root.join("resources").join(&prefixed_name),
         root.join(name),
+        root.join(&prefixed_name),
         root.join("external").join("ffmpeg").join("bin").join(name),
         root.join("tools").join("ffmpeg").join("bin").join(name),
     ];
@@ -353,6 +361,14 @@ fn bundled_command_candidates(root: &Path, name: &str) -> Vec<PathBuf> {
                 .join("ffmpeg")
                 .join("bin")
                 .join(&windows_name),
+        ]);
+    }
+    if let Some(prefixed_windows_name) = prefixed_windows_name {
+        candidates.extend([
+            root.join("bin").join(&prefixed_windows_name),
+            root.join("resources").join("bin").join(&prefixed_windows_name),
+            root.join("resources").join(&prefixed_windows_name),
+            root.join(&prefixed_windows_name),
         ]);
     }
     candidates

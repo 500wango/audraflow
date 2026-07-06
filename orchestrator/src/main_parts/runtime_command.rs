@@ -219,13 +219,18 @@ fn find_bundled_whisper_cli() -> Option<PathBuf> {
 }
 
 fn whisper_cli_candidates(root: &Path) -> Vec<PathBuf> {
+    let bundled_name = format!("audraflow-{}", whisper_cli_binary_name());
     vec![
         root.join("bin").join(whisper_cli_binary_name()),
+        root.join("bin").join(&bundled_name),
         root.join("resources")
             .join("bin")
             .join(whisper_cli_binary_name()),
+        root.join("resources").join("bin").join(&bundled_name),
         root.join("resources").join(whisper_cli_binary_name()),
+        root.join("resources").join(&bundled_name),
         root.join(whisper_cli_binary_name()),
+        root.join(&bundled_name),
         root.join("external")
             .join("whisper.cpp")
             .join("build-linux")
