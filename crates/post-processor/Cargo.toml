@@ -1,0 +1,16 @@
+[package]
+name = "audraflow-post-processor"
+version = "0.1.0"
+edition = "2021"
+description = "AudraFlow text post-processing: punctuation, lexicon correction, confidence marking"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+unicode-segmentation = "1"
+pinyin = "0.10"
+
+audraflow-ipc = { path = "../ipc" }

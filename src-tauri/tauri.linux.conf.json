@@ -1,0 +1,16 @@
+{
+  "bundle": {
+    "externalBin": [
+      "binaries/audraflow-orchestrator",
+      "binaries/audraflow-asr-runtime",
+      "binaries/whisper-cli",
+      "binaries/llama-funasr-cli",
+      "binaries/ffmpeg",
+      "binaries/ffprobe",
+      "binaries/libwhisper.so.1",
+      "binaries/libggml.so.0",
+      "binaries/libggml-base.so.0",
+      "binaries/libggml-cpu.so.0"
+    ]
+  }
+}

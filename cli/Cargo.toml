@@ -1,0 +1,23 @@
+[package]
+name = "audraflow-cli"
+version = "0.1.0"
+edition = "2021"
+description = "AudraFlow CLI — command-line interface for transcribe/export/batch with stdout support"
+
+[[bin]]
+name = "audraflow"
+path = "src/main.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+sha2 = "0.10"
+
+audraflow-ipc = { path = "../crates/ipc" }
+audraflow-export = { path = "../crates/export" }
+
+[dev-dependencies]
+tempfile = "3"

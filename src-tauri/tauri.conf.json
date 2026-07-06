@@ -1,0 +1,77 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "AudraFlow",
+  "mainBinaryName": "AudraFlow",
+  "version": "1.0.0",
+  "identifier": "com.audraflow.app",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://127.0.0.1:5173",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build && npm run stage:sidecars"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "AudraFlow",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
+        "resizable": true,
+        "decorations": false,
+        "shadow": true,
+        "fullscreen": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; media-src 'self' asset: http://asset.localhost",
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$APPCACHE/**",
+          "$APPDATA/**",
+          "$AUDIO/**",
+          "$VIDEO/**",
+          "$DOWNLOAD/**",
+          "$DOCUMENT/**",
+          "$HOME/**"
+        ]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "publisher": "AudraFlow",
+    "copyright": "Copyright (c) 2026 AudraFlow",
+    "license": "Proprietary",
+    "category": "Productivity",
+    "shortDescription": "Local transcription and proofreading desktop app.",
+    "longDescription": "AudraFlow is a local-first desktop app for transcription, proofreading, glossary correction, and transcript export.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "externalBin": [
+      "binaries/audraflow-orchestrator",
+      "binaries/audraflow-asr-runtime"
+    ],
+    "windows": {
+      "wix": {
+        "language": "zh-CN"
+      },
+      "nsis": {
+        "languages": ["English", "SimpChinese"],
+        "installMode": "currentUser"
+      }
+    },
+    "android": {
+      "debugApplicationIdSuffix": ".debug"
+    }
+  }
+}

@@ -1,0 +1,13 @@
+[package]
+name = "audraflow-scheduler"
+version = "0.1.0"
+edition = "2021"
+description = "AudraFlow Adaptive Scheduler — auto-selects model/beam/chunk/parallelism based on audio+device analysis"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+anyhow = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }

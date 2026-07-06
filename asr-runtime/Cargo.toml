@@ -1,0 +1,28 @@
+[package]
+name = "audraflow-asr-runtime"
+version = "0.1.0"
+edition = "2021"
+description = "AudraFlow ASR Runtime — wraps whisper.cpp for local speech-to-text inference"
+
+[[bin]]
+name = "audraflow-asr-runtime"
+path = "src/main.rs"
+
+[build-dependencies]
+cc = "1"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+tokio = { version = "1", features = ["full"] }
+num_cpus = "1"
+tempfile = "3"
+which = "7"
+
+audraflow-ipc = { path = "../crates/ipc" }

@@ -1,0 +1,15 @@
+[package]
+name = "audraflow-export"
+version = "0.1.0"
+edition = "2021"
+description = "AudraFlow export layer — TXT/Markdown/SRT/VTT/JSON/DOCX generation"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+zip = "2"
+
+audraflow-ipc = { path = "../ipc" }

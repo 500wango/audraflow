@@ -1,0 +1,43 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+target
+src-tauri/binaries
+release
+*.local
+
+# Local dev logs
+tauri-dev-session.log
+vite-dev.log
+
+# Bundled/runtime tools and downloaded models are generated or fetched assets.
+external/ffmpeg/
+external/Fun-ASR/
+external/funasr-llamacpp/bin/llama-funasr-*
+external/funasr-llamacpp/downloads/
+external/funasr-llamacpp/gguf/
+
+# whisper.cpp is tracked as a submodule; keep local build/model artifacts out.
+external/whisper.cpp/build/
+external/whisper.cpp/build-linux/
+external/whisper.cpp/models/*.bin
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

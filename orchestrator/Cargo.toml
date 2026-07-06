@@ -1,0 +1,33 @@
+[package]
+name = "audraflow-orchestrator"
+version = "0.1.0"
+edition = "2021"
+description = "AudraFlow Task Orchestrator — job state machine, scheduling, checkpoint, IPC hub"
+
+[[bin]]
+name = "audraflow-orchestrator"
+path = "src/main.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+tokio = { version = "1", features = ["full"] }
+num_cpus = "1"
+which = "7"
+
+audraflow-ipc = { path = "../crates/ipc" }
+audraflow-storage = { path = "../crates/storage" }
+audraflow-scheduler = { path = "../crates/scheduler" }
+audraflow-post-processor = { path = "../crates/post-processor" }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_Threading", "Win32_Foundation", "Win32_Storage_FileSystem"] }

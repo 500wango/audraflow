@@ -1,0 +1,21 @@
+[package]
+name = "audraflow-ipc"
+version = "0.1.0"
+edition = "2021"
+description = "AudraFlow IPC message types and transport layer"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace = true }
+
+# Windows Named Pipe transport
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["winbase", "namedpipeapi", "fileapi", "handleapi", "minwindef", "synchapi", "ioapiset"] }
+
+[target.'cfg(unix)'.dependencies]
+# Unix Domain Socket (macOS later)

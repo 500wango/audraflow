@@ -1,0 +1,45 @@
+[package]
+name = "app"
+version = "1.0.0"
+description = "AudraFlow desktop app"
+authors = ["AudraFlow"]
+license = "Proprietary"
+repository = ""
+edition = "2021"
+rust-version = "1.77.2"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+doctest = false
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+serde_json = { workspace = true }
+serde = { workspace = true }
+log = { workspace = true }
+anyhow = { workspace = true }
+uuid = { workspace = true }
+tauri = { version = "2.11.3", features = ["protocol-asset", "tray-icon"] }
+tauri-plugin-log = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-shell = "2"
+tauri-plugin-opener = "2"
+
+audraflow-ipc = { path = "../crates/ipc" }
+audraflow-export = { path = "../crates/export" }
+audraflow-storage = { path = "../crates/storage" }
+audraflow-scheduler = { path = "../crates/scheduler" }
+audraflow-licensing = { path = "../crates/licensing" }
+audraflow-model-manager = { path = "../crates/model-manager" }
+audraflow-post-processor = { path = "../crates/post-processor" }
+num_cpus = "1"
+sha2 = "0.10"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+futures-util = "0.3"
+tokio = { version = "1", features = ["process", "time"] }
