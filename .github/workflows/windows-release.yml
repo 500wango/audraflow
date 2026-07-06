@@ -39,6 +39,11 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Setup MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       - name: Cache Rust build
         uses: swatinem/rust-cache@v2
         with:
@@ -77,7 +82,15 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Prepare runtime assets
+        run: npm run prepare:runtime-assets
+
+      - name: Stage sidecars
+        run: npm run stage:sidecars
+
       - name: Build Windows installers
+        env:
+          AUDRAFLOW_SKIP_BEFORE_BUILD: "1"
         run: npm run desktop:build:windows
 
       - name: Generate release manifest

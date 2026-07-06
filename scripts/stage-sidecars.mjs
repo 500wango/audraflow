@@ -38,6 +38,9 @@ const sidecars = [
   { packageName: 'audraflow-orchestrator', binaryName: 'audraflow-orchestrator' },
   { packageName: 'audraflow-asr-runtime', binaryName: 'audraflow-asr-runtime' },
 ];
+
+console.log(`staging sidecars for target: ${targetTriple}`);
+console.log(`cargo release directory: ${releaseDir}`);
 const linuxToolSources = [
   {
     bundleName: 'whisper-cli',
@@ -444,8 +447,11 @@ async function stageWindowsRuntimeDlls() {
   }
 
   if (missing.length > 0) {
+    const searchedRoots = searchRoots
+      .map((root) => `${root.path}${root.depth > 0 ? ` (depth ${root.depth})` : ''}`)
+      .join('\n  ');
     throw new Error(
-      `Missing required Windows runtime DLL(s): ${missing.join(', ')}. Install Microsoft Visual C++ Redistributable 2015-2022 x64 or build whisper-cli with a static runtime.`,
+      `Missing required Windows runtime DLL(s): ${missing.join(', ')}. Install Microsoft Visual C++ Redistributable 2015-2022 x64 or build whisper-cli with a static runtime.\nSearched:\n  ${searchedRoots}`,
     );
   }
 }
