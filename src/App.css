@@ -627,8 +627,13 @@ html, body, #root {
   }
 
   .model-row-actions,
+  .runtime-health-actions,
   .glossary-form-actions {
     flex-wrap: wrap;
+  }
+
+  .runtime-health-actions {
+    justify-content: flex-start;
   }
 }
 
@@ -1653,6 +1658,17 @@ html, body, #root {
   color: var(--warning);
   font-size: 12px;
   line-height: 1.45;
+}
+
+.runtime-health-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.runtime-health-actions .runtime-fix {
+  flex: 1 1 160px;
 }
 
 .model-summary {

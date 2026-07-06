@@ -60,6 +60,8 @@ Install the NSIS or MSI package and verify:
 - The telemetry consent dialog responds to both choices.
 - The language switch changes between English and Chinese.
 - The bundled `base` model appears in Settings and is selected on a fresh profile.
+- Runtime Health reports the default Whisper model, Whisper CLI, FFmpeg, FFprobe, and bundled `yt-dlp` as ready.
+- For repairable Runtime Health rows, the repair button restores the default model or installs the managed dependency without requiring the user to find files manually.
 - Model import or model download succeeds for an additional model.
 - A short English audio file transcribes successfully.
 - A short Chinese audio file transcribes successfully.
@@ -84,4 +86,5 @@ Do not mark the Windows build as releasable until:
 - At least one NSIS install and uninstall cycle passes.
 - At least one MSI install and uninstall cycle passes, if MSI is shipped.
 - One fresh Windows user profile has completed a first-run transcription.
+- Runtime Health has no required blockers after install, or the repair button clears the blocker.
 - One upgraded profile with existing data has launched without data loss.

@@ -73,6 +73,8 @@ For cross-target staging, set `AUDRAFLOW_TARGET_TRIPLE` or `CARGO_BUILD_TARGET` 
 
 AudraFlow defaults to Auto engine selection for new transcription jobs. Release packages include a bundled Whisper base model, so Auto uses local Whisper by default and works without Python or manual model setup. SenseVoice remains available as an explicit engine when its Python dependencies are installed. In Music / lyrics mode, Auto uses the selected or preferred Whisper model with long-context chunking. Extreme lyrics mode also merges original-audio and Demucs-vocals candidates when possible.
 
+Settings includes Runtime Health for install validation and one-click repair. It can restore or download the default Whisper model, install a managed `yt-dlp`, and run Python package repair for optional SenseVoice and Demucs support. Manual commands and environment variables below are fallback paths when the repair action cannot be used in the target environment.
+
 The Import page also has an audio language selector:
 
 - `Auto detect`: best default for mixed workflows and non-Chinese media.

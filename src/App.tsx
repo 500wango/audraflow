@@ -315,6 +315,7 @@ interface RuntimeDependency {
   path?: string | null;
   version?: string | null;
   detail?: string | null;
+  repairable: boolean;
 }
 
 interface RuntimeHealth {
@@ -322,6 +323,12 @@ interface RuntimeHealth {
   blockingCount: number;
   warningCount: number;
   items: RuntimeDependency[];
+}
+
+interface RuntimeRepairResult {
+  id: string;
+  message: string;
+  health: RuntimeHealth;
 }
 
 interface ModelInfo {
@@ -3648,6 +3655,7 @@ function SettingsPage({
   const [runtimeHealth, setRuntimeHealth] = useState<RuntimeHealth | null>(null);
   const [runtimeHealthStatus, setRuntimeHealthStatus] = useState<string | null>(null);
   const [runtimeHealthRefreshing, setRuntimeHealthRefreshing] = useState(false);
+  const [runtimeRepairAction, setRuntimeRepairAction] = useState<string | null>(null);
   const [privacyAction, setPrivacyAction] = useState<string | null>(null);
   const [modelPathInput, setModelPathInput] = useState('');
   const [modelDownloadUrl, setModelDownloadUrl] = useState('');
@@ -3717,6 +3725,25 @@ function SettingsPage({
       setRuntimeHealthRefreshing(false);
     }
   }, [t]);
+
+  const handleRepairRuntimeDependency = async (item: RuntimeDependency) => {
+    setRuntimeRepairAction(item.id);
+    setRuntimeHealthStatus(t('runtime.repairingItem', { item: runtimeDependencyLabel(item.id, t) }));
+    try {
+      const result = await invokeTauri<RuntimeRepairResult>('cmd_repair_runtime_dependency', {
+        id: item.id,
+      });
+      setRuntimeHealth(result.health);
+      setRuntimeHealthStatus(result.message);
+      onRefreshModelSettings();
+      refreshDiagnosticsPreview();
+    } catch (error) {
+      setRuntimeHealthStatus(errorToMessage(error, t));
+      void refreshRuntimeHealth();
+    } finally {
+      setRuntimeRepairAction(null);
+    }
+  };
 
   const refreshGlossaryEntries = useCallback(async () => {
     if (!hasTauriRuntime()) {
@@ -4190,7 +4217,20 @@ function SettingsPage({
                       {item.detail ? <p className="setting-meta">{t('runtime.detail', { detail: item.detail })}</p> : null}
                     </div>
                     {item.status !== 'ready' ? (
-                      <p className="runtime-fix">{runtimeDependencyFix(item.id, t)}</p>
+                      <div className="runtime-health-actions">
+                        <p className="runtime-fix">{runtimeDependencyFix(item.id, t)}</p>
+                        {item.repairable ? (
+                          <button
+                            className="btn-secondary btn-sm-inline"
+                            disabled={runtimeRepairAction !== null}
+                            onClick={() => {
+                              void handleRepairRuntimeDependency(item);
+                            }}
+                          >
+                            {runtimeRepairAction === item.id ? t('runtime.repairing') : t('runtime.repair')}
+                          </button>
+                        ) : null}
+                      </div>
                     ) : null}
                   </div>
                 );

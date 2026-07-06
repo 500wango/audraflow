@@ -321,6 +321,15 @@ struct RuntimeDependencyDto {
     path: Option<String>,
     version: Option<String>,
     detail: Option<String>,
+    repairable: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeRepairResultDto {
+    id: String,
+    message: String,
+    health: RuntimeHealthDto,
 }
 
 #[derive(Deserialize)]
@@ -1681,6 +1690,7 @@ fn detect_device_diagnostics() -> DeviceDiagnosticsDto {
 
 async fn runtime_health(app_handle: &tauri::AppHandle) -> RuntimeHealthDto {
     let mut items = vec![
+        probe_default_whisper_model(app_handle),
         probe_runtime_command(
             "whisperCli",
             "required",
@@ -1752,15 +1762,86 @@ async fn runtime_health(app_handle: &tauri::AppHandle) -> RuntimeHealthDto {
 
 fn runtime_dependency_sort_key(id: &str) -> u8 {
     match id {
-        "whisperCli" => 0,
-        "ffmpeg" => 1,
-        "ffprobe" => 2,
-        "sensevoicePython" => 3,
-        "ytDlp" => 4,
-        "demucs" => 5,
-        "funasrCli" => 6,
-        "funasrModels" => 7,
+        "defaultWhisperModel" => 0,
+        "whisperCli" => 1,
+        "ffmpeg" => 2,
+        "ffprobe" => 3,
+        "sensevoicePython" => 4,
+        "ytDlp" => 5,
+        "demucs" => 6,
+        "funasrCli" => 7,
+        "funasrModels" => 8,
         _ => u8::MAX,
+    }
+}
+
+fn runtime_dependency_repairable(id: &str) -> bool {
+    matches!(
+        id,
+        "defaultWhisperModel" | "ytDlp" | "sensevoicePython" | "demucs"
+    )
+}
+
+fn probe_default_whisper_model(app_handle: &tauri::AppHandle) -> RuntimeDependencyDto {
+    let id = "defaultWhisperModel";
+    let repairable = runtime_dependency_repairable(id);
+    let manager = match model_manager(app_handle) {
+        Ok(manager) => manager,
+        Err(error) => {
+            return RuntimeDependencyDto {
+                id: id.into(),
+                status: "missing".into(),
+                kind: "required".into(),
+                path: None,
+                version: None,
+                detail: Some(error),
+                repairable,
+            };
+        }
+    };
+
+    if let Err(error) = ensure_bundled_default_model(app_handle, &manager) {
+        return RuntimeDependencyDto {
+            id: id.into(),
+            status: "warning".into(),
+            kind: "required".into(),
+            path: None,
+            version: None,
+            detail: Some(error),
+            repairable,
+        };
+    }
+
+    match manager.selected_model() {
+        Ok(Some(model)) if is_whisper_cpp_model(&model) && model.path.is_file() => {
+            RuntimeDependencyDto {
+                id: id.into(),
+                status: "ready".into(),
+                kind: "required".into(),
+                path: Some(model.path.to_string_lossy().into_owned()),
+                version: Some(format!("{} {}", model.info.name, model.info.version)),
+                detail: None,
+                repairable,
+            }
+        }
+        Ok(_) => RuntimeDependencyDto {
+            id: id.into(),
+            status: "missing".into(),
+            kind: "required".into(),
+            path: None,
+            version: None,
+            detail: Some("No selected local Whisper model was found.".into()),
+            repairable,
+        },
+        Err(error) => RuntimeDependencyDto {
+            id: id.into(),
+            status: "warning".into(),
+            kind: "required".into(),
+            path: None,
+            version: None,
+            detail: Some(error.to_string()),
+            repairable,
+        },
     }
 }
 
@@ -1785,6 +1866,7 @@ async fn probe_runtime_command(
             version: first_output_line(&output.stdout)
                 .or_else(|| first_output_line(&output.stderr)),
             detail: None,
+            repairable: runtime_dependency_repairable(id),
         },
         Ok(Ok(output)) => RuntimeDependencyDto {
             id: id.into(),
@@ -1800,6 +1882,7 @@ async fn probe_runtime_command(
                     .or_else(|| short_output(&output.stdout))
                     .unwrap_or_else(|| "No output.".into())
             )),
+            repairable: runtime_dependency_repairable(id),
         },
         Ok(Err(error)) => RuntimeDependencyDto {
             id: id.into(),
@@ -1808,6 +1891,7 @@ async fn probe_runtime_command(
             path: None,
             version: None,
             detail: Some(error.to_string()),
+            repairable: runtime_dependency_repairable(id),
         },
         Err(_) => RuntimeDependencyDto {
             id: id.into(),
@@ -1816,6 +1900,7 @@ async fn probe_runtime_command(
             path: Some(display_path),
             version: None,
             detail: Some(format!("Probe timed out after {timeout_secs}s.")),
+            repairable: runtime_dependency_repairable(id),
         },
     }
 }
@@ -1829,6 +1914,7 @@ async fn probe_sensevoice_python() -> RuntimeDependencyDto {
             path: None,
             version: None,
             detail: Some("Python was not found.".into()),
+            repairable: runtime_dependency_repairable("sensevoicePython"),
         };
     };
 
@@ -1858,6 +1944,7 @@ async fn probe_demucs() -> RuntimeDependencyDto {
             path: None,
             version: None,
             detail: Some("Demucs was not found.".into()),
+            repairable: runtime_dependency_repairable("demucs"),
         };
     };
 
@@ -1896,6 +1983,7 @@ fn probe_funasr_models(app_handle: &tauri::AppHandle) -> RuntimeDependencyDto {
                     .map(|path| path.display().to_string())
                     .unwrap_or_else(|| "not found".into())
             )),
+            repairable: runtime_dependency_repairable("funasrModels"),
         },
         Err(error) => RuntimeDependencyDto {
             id: "funasrModels".into(),
@@ -1904,8 +1992,256 @@ fn probe_funasr_models(app_handle: &tauri::AppHandle) -> RuntimeDependencyDto {
             path: None,
             version: None,
             detail: Some(error),
+            repairable: runtime_dependency_repairable("funasrModels"),
         },
     }
+}
+
+async fn repair_runtime_dependency(
+    app_handle: tauri::AppHandle,
+    id: &str,
+) -> Result<RuntimeRepairResultDto, String> {
+    let normalized = id.trim();
+    let message = match normalized {
+        "defaultWhisperModel" => repair_default_whisper_model(&app_handle).await?,
+        "ytDlp" => repair_yt_dlp().await?,
+        "sensevoicePython" => {
+            repair_python_packages(
+                "SenseVoice Python packages",
+                &["funasr", "modelscope"],
+                Duration::from_secs(30 * 60),
+            )
+            .await?
+        }
+        "demucs" => {
+            repair_python_packages(
+                "Demucs",
+                &["demucs", "torchcodec"],
+                Duration::from_secs(30 * 60),
+            )
+            .await?
+        }
+        _ => {
+            return Err(format!(
+                "Runtime dependency cannot be repaired automatically: {id}"
+            ))
+        }
+    };
+
+    Ok(RuntimeRepairResultDto {
+        id: normalized.into(),
+        message,
+        health: runtime_health(&app_handle).await,
+    })
+}
+
+async fn repair_default_whisper_model(app_handle: &tauri::AppHandle) -> Result<String, String> {
+    let manager = model_manager(app_handle)?;
+    if let Some(installed) = ensure_bundled_default_model(app_handle, &manager)? {
+        match manager.selected_model() {
+            Ok(Some(model)) if is_whisper_cpp_model(&model) && model.path.is_file() => {
+                return Ok(format!("Whisper model is ready: {}", model.path.display()));
+            }
+            Ok(_) => {
+                manager
+                    .select_model(&installed.info.name, &installed.info.version)
+                    .map_err(|e| e.to_string())?;
+                return Ok(format!(
+                    "Default Whisper model was selected: {}",
+                    installed.path.display()
+                ));
+            }
+            Err(error) => {
+                manager
+                    .select_model(&installed.info.name, &installed.info.version)
+                    .map_err(|e| e.to_string())?;
+                return Ok(format!(
+                    "Default Whisper model was selected after repairing the previous selection ({error}): {}",
+                    installed.path.display(),
+                ));
+            }
+        }
+    }
+
+    let mut info = bundled_default_model_info();
+    info.download_url = format!(
+        "{WHISPER_CPP_MODEL_BASE_URL}/{WHISPER_CPP_MODEL_COMMIT}/ggml-{DEFAULT_WHISPER_MODEL_NAME}.bin"
+    );
+    let download_id = "defaultWhisperModel";
+    emit_model_download_progress(
+        app_handle,
+        download_id,
+        0,
+        info.size_bytes,
+        "Downloading default Whisper model",
+    );
+
+    let app_for_progress = app_handle.clone();
+    let manager_for_download = manager;
+    let info_for_download = info.clone();
+    tokio::task::spawn_blocking(move || {
+        manager_for_download.download(&info_for_download, |downloaded, total| {
+            emit_model_download_progress(
+                &app_for_progress,
+                download_id,
+                downloaded,
+                total,
+                format!(
+                    "Downloaded {} / {}",
+                    format_file_size(downloaded),
+                    format_file_size(total)
+                ),
+            );
+        })?;
+        manager_for_download.select_model(&info_for_download.name, &info_for_download.version)?;
+        anyhow::Ok(())
+    })
+    .await
+    .map_err(|e| format!("Default model repair task failed: {e}"))?
+    .map_err(|e| e.to_string())?;
+
+    Ok("Default Whisper model was downloaded and selected.".into())
+}
+
+async fn repair_yt_dlp() -> Result<String, String> {
+    let destination = managed_tool_path(yt_dlp_binary_name());
+    download_binary_to_path(yt_dlp_download_url(), &destination, 1024 * 1024).await?;
+    mark_executable(&destination)?;
+    let output = tokio::process::Command::new(&destination)
+        .arg("--version")
+        .output()
+        .await
+        .map_err(|e| format!("Downloaded yt-dlp could not be started: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "Downloaded yt-dlp failed its version check: {}",
+            short_output(&output.stderr)
+                .or_else(|| short_output(&output.stdout))
+                .unwrap_or_else(|| "No output.".into())
+        ));
+    }
+
+    Ok(format!("yt-dlp is ready: {}", destination.display()))
+}
+
+async fn download_binary_to_path(
+    url: &str,
+    destination: &Path,
+    min_bytes: usize,
+) -> Result<(), String> {
+    if let Some(parent) = destination.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|e| format!("Failed to create download directory: {e}"))?;
+    }
+
+    let response = reqwest::get(url)
+        .await
+        .map_err(|e| format!("Failed to download {url}: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Download failed with {}", response.status()));
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("Failed to read download response: {e}"))?;
+    if bytes.len() < min_bytes {
+        return Err(format!(
+            "Downloaded file is too small: {} bytes",
+            bytes.len()
+        ));
+    }
+    if looks_like_html(&bytes) {
+        return Err("Downloaded HTML instead of a binary file.".into());
+    }
+
+    let tmp_path = destination.with_extension("tmp");
+    let _ = tokio::fs::remove_file(&tmp_path).await;
+    tokio::fs::write(&tmp_path, &bytes)
+        .await
+        .map_err(|e| format!("Failed to write downloaded file: {e}"))?;
+    let _ = tokio::fs::remove_file(destination).await;
+    tokio::fs::rename(&tmp_path, destination)
+        .await
+        .map_err(|e| format!("Failed to install downloaded file: {e}"))
+}
+
+fn looks_like_html(bytes: &[u8]) -> bool {
+    let sample_len = bytes.len().min(512);
+    let sample = String::from_utf8_lossy(&bytes[..sample_len])
+        .trim_start()
+        .to_ascii_lowercase();
+    sample.starts_with("<!doctype html") || sample.starts_with("<html")
+}
+
+fn mark_executable(path: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = std::fs::metadata(path)
+            .map_err(|e| format!("Failed to inspect downloaded executable: {e}"))?
+            .permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(path, permissions)
+            .map_err(|e| format!("Failed to mark downloaded executable: {e}"))?;
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+    }
+    Ok(())
+}
+
+async fn repair_python_packages(
+    label: &str,
+    packages: &[&str],
+    timeout: Duration,
+) -> Result<String, String> {
+    let invocation = resolve_python_invocation().ok_or_else(|| {
+        format!(
+            "{label} repair requires Python 3. Install Python 3 first or set AUDRAFLOW_PYTHON_BIN."
+        )
+    })?;
+    let mut args = invocation.base_args;
+    args.extend([
+        "-m".into(),
+        "pip".into(),
+        "install".into(),
+        "--user".into(),
+        "-U".into(),
+    ]);
+    args.extend(packages.iter().map(|package| (*package).to_string()));
+
+    let output = tokio::time::timeout(
+        timeout,
+        tokio::process::Command::new(&invocation.program)
+            .args(&args)
+            .output(),
+    )
+    .await
+    .map_err(|_| {
+        format!(
+            "{label} repair timed out after {} seconds.",
+            timeout.as_secs()
+        )
+    })?
+    .map_err(|e| {
+        format!(
+            "Failed to start Python package repair at {}: {e}",
+            invocation.display
+        )
+    })?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "{label} repair failed: {}",
+            short_output(&output.stderr)
+                .or_else(|| short_output(&output.stdout))
+                .unwrap_or_else(|| "No output.".into())
+        ));
+    }
+
+    Ok(format!("{label} installed or updated."))
 }
 
 fn preflight_url_import_dependencies(url: &str, skip_start_seconds: f64) -> Result<(), String> {
@@ -2710,6 +3046,10 @@ fn yt_dlp_command() -> PathBuf {
         return path;
     }
 
+    if let Some(path) = find_managed_tool(yt_dlp_binary_name()) {
+        return path;
+    }
+
     if let Some(path) =
         find_bundled_command("yt-dlp").or_else(|| find_dev_or_portable_tool(yt_dlp_binary_name()))
     {
@@ -2737,6 +3077,29 @@ fn yt_dlp_binary_name() -> &'static str {
         "yt-dlp.exe"
     } else {
         "yt-dlp"
+    }
+}
+
+fn managed_tools_bin_dir() -> PathBuf {
+    app_data_dir().join("tools").join("bin")
+}
+
+fn managed_tool_path(name: &str) -> PathBuf {
+    managed_tools_bin_dir().join(name)
+}
+
+fn find_managed_tool(name: &str) -> Option<PathBuf> {
+    let path = managed_tool_path(name);
+    path.is_file().then_some(path)
+}
+
+fn yt_dlp_download_url() -> &'static str {
+    if cfg!(windows) {
+        "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+    } else if cfg!(target_os = "macos") {
+        "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos"
+    } else {
+        "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux"
     }
 }
 
@@ -3993,6 +4356,7 @@ pub fn run() {
             cmd_get_diagnostics_preview,
             cmd_get_device_diagnostics,
             cmd_get_runtime_health,
+            cmd_repair_runtime_dependency,
             cmd_export_diagnostics_package,
             cmd_export_transcript,
             cmd_render_transcript_export,
@@ -4927,6 +5291,14 @@ async fn cmd_get_device_diagnostics() -> Result<DeviceDiagnosticsDto, String> {
 #[tauri::command]
 async fn cmd_get_runtime_health(app_handle: tauri::AppHandle) -> Result<RuntimeHealthDto, String> {
     Ok(runtime_health(&app_handle).await)
+}
+
+#[tauri::command]
+async fn cmd_repair_runtime_dependency(
+    app_handle: tauri::AppHandle,
+    id: String,
+) -> Result<RuntimeRepairResultDto, String> {
+    repair_runtime_dependency(app_handle, &id).await
 }
 
 #[tauri::command]

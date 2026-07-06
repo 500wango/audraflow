@@ -60,10 +60,11 @@ If `apt` prints a sandbox warning about `_apt` permissions while installing a lo
 
 After launch, open Settings and verify Runtime Health:
 
+- `Default Whisper model` is ready. If it is missing, use the row's repair button to restore the bundled model or download it into the local model cache.
 - `Whisper CLI`, `FFmpeg`, and `FFprobe` are ready for local Whisper and media decoding.
-- `SenseVoice Python packages` are ready if the optional SenseVoice engine will be used.
-- Bundled `yt-dlp` is ready if platform links will be imported.
-- `Demucs` is ready only if vocal separation will be used.
+- `yt-dlp` is ready if platform links will be imported. If the bundled copy is missing or broken, use the repair button to install a managed copy under the app data directory.
+- `SenseVoice Python packages` are ready if the optional SenseVoice engine will be used. The repair button runs the Python package install when Python is available.
+- `Demucs` is ready only if vocal separation will be used. The repair button runs the Python package install when Python is available.
 - `Fun-ASR CLI` and `Fun-ASR GGUF models` are only required for the experimental Fun-ASR engine.
 
 The Import page should block new jobs before creation when required runtime dependencies are missing.
@@ -92,6 +93,8 @@ And so my fellow Americans ask not what your country can do for you
 ```
 
 ## Common Runtime Fixes
+
+Use Settings -> Runtime Health first. Repairable rows show a repair button for the default Whisper model, `yt-dlp`, SenseVoice Python packages, and Demucs. Use the commands below only when the automatic repair action is unavailable or fails in the target environment.
 
 Platform links fail with `yt-dlp` missing:
 

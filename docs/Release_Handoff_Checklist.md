@@ -46,6 +46,7 @@ Before marking a build as releasable:
 - Confirm the bundled `base` model is present and selected on first launch.
 - Import or download an additional model.
 - Open Settings and confirm Runtime Health has no required blockers for the tested workflow.
+- For any repairable Runtime Health warning, use the repair button and rerun the health check.
 - Transcribe one short English file.
 - Transcribe one short Chinese file.
 - Import one direct media URL.
