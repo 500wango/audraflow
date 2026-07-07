@@ -129,6 +129,14 @@ impl AudioPipeline {
 
     /// Extract full audio metadata and compute SNR/speech density.
     pub fn analyze(&self, file_path: &Path, file_hash: &str) -> anyhow::Result<AudioInfo> {
+        if !file_path.is_file() {
+            anyhow::bail!(
+                "Input is not a regular file (dir={}, exists={}): {}",
+                file_path.is_dir(),
+                file_path.exists(),
+                file_path.display(),
+            );
+        }
         let start = Instant::now();
 
         // Extract format info via ffprobe
