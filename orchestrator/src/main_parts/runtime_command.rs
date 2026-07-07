@@ -301,9 +301,12 @@ fn runtime_app_data_dir() -> PathBuf {
 fn preview_bytes(bytes: &[u8]) -> String {
     let text = String::from_utf8_lossy(bytes);
     let trimmed = text.trim();
-    if trimmed.chars().count() <= 10000 {
+    let total = trimmed.chars().count();
+    if total <= 10000 {
         trimmed.to_string()
     } else {
-        format!("{}...", trimmed.chars().take(10000).collect::<String>())
+        let head: String = trimmed.chars().take(4000).collect();
+        let tail: String = trimmed.chars().skip(total.saturating_sub(4000)).collect();
+        format!("{head}\n\n...({} total chars, showing first and last 4000)...\n\n{tail}", total)
     }
 }
