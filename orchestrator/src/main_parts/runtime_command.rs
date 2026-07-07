@@ -41,10 +41,11 @@ fn validate_runtime_model_path(model_path: &str) -> Result<(), String> {
 
 fn runtime_transcribe_command(job: &QueueItem) -> Result<tokio::process::Command, String> {
     let asr_engine = normalize_asr_engine_hint(job.asr_engine.as_deref());
+    let file_path = resolve_media_file_path(&job.file_path)?;
     let mut command = runtime_base_command();
     command
         .arg("transcribe")
-        .arg(&job.file_path)
+        .arg(&file_path)
         .arg("--engine")
         .arg(asr_engine)
         .arg("--file-hash")
@@ -295,6 +296,40 @@ fn runtime_app_data_dir() -> PathBuf {
             })
             .unwrap_or_else(|| PathBuf::from("."))
             .join("com.audraflow.app")
+    }
+}
+
+/// If stored path is a directory (yt-dlp cache dir), find the actual media file inside.
+fn resolve_media_file_path(stored_path: &str) -> Result<String, String> {
+    let path = std::path::Path::new(stored_path);
+    if path.is_file() {
+        return Ok(stored_path.to_string());
+    }
+    if !path.is_dir() {
+        return Err(format!("Media file not found: {stored_path}"));
+    }
+    let mut best: Option<(std::path::PathBuf, u64)> = None;
+    let entries = std::fs::read_dir(path)
+        .map_err(|e| format!("Cannot read directory {stored_path}: {e}"))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("Cannot read entry: {e}"))?;
+        let p = entry.path();
+        if !p.is_file() { continue; }
+        let is_media = p.extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|ext| matches!(
+                ext.to_ascii_lowercase().as_str(),
+                "mp3"|"wav"|"m4a"|"mp4"|"mov"|"aac"|"flac"|"ogg"|"webm"|"mkv"
+            ));
+        if !is_media { continue; }
+        let size = entry.metadata().map_err(|e| format!("Cannot inspect file: {e}"))?.len();
+        if size > 0 && best.as_ref().map_or(true, |b| size > b.1) {
+            best = Some((p, size));
+        }
+    }
+    match best {
+        Some((p, _)) => Ok(p.to_string_lossy().into_owned()),
+        None => Err(format!("No media file found in directory: {stored_path}")),
     }
 }
 
