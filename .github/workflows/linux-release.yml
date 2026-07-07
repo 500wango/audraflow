@@ -103,6 +103,7 @@ jobs:
 
       - name: Build Linux packages
         env:
+          AUDRAFLOW_GITHUB_TOKEN: ${{ secrets.AUDRAFLOW_RELEASE_READ_TOKEN }}
           AUDRAFLOW_COMPONENT_RELEASE_TAG: ${{ steps.component-tag.outputs.tag }}
           AUDRAFLOW_COMPONENT_BASE_URL: ${{ format('https://github.com/{0}/releases/download/{1}', github.repository, steps.component-tag.outputs.tag) }}
         run: npm run desktop:build:linux

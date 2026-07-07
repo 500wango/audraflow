@@ -246,30 +246,7 @@ if (targetTriple.includes('linux')) {
     }
   }
 } else if (targetTriple.includes('windows')) {
-  const windowsToolSources = [
-    {
-      bundleName: 'audraflow-whisper-cli',
-      sources: [
-        join(workspaceRoot, 'external', 'whisper.cpp', 'build', 'bin', 'Release', 'whisper-cli.exe'),
-        join(workspaceRoot, 'external', 'whisper.cpp', 'build', 'bin', 'whisper-cli.exe'),
-      ],
-    },
-    {
-      bundleName: 'audraflow-ffmpeg',
-      sources: [
-        join(workspaceRoot, 'release', 'windows-portable', 'AudraFlow', 'bin', 'ffmpeg.exe'),
-      ],
-    },
-    {
-      bundleName: 'audraflow-ffprobe',
-      sources: [
-        join(workspaceRoot, 'release', 'windows-portable', 'AudraFlow', 'bin', 'ffprobe.exe'),
-      ],
-    },
-  ];
-  for (const tool of windowsToolSources) {
-    await stageExternalTool(tool);
-  }
+  console.log('Windows runtime tools are not bundled; install them from Settings after setup.');
 } else if (isMacosTarget) {
   for (const tool of macosToolSources) {
     await stageExternalTool(tool);

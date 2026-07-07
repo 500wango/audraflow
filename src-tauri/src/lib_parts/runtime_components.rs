@@ -684,6 +684,21 @@ pub(crate) async fn download_url_to_path_with_progress(
         .timeout(Duration::from_secs(30))
         .connect_timeout(Duration::from_secs(10))
         .user_agent("AudraFlow/1.0")
+        .default_headers({
+            let mut headers = reqwest::header::HeaderMap::new();
+            if let Ok(token) = std::env::var("AUDRAFLOW_GITHUB_TOKEN") {
+                let token = token.trim().to_string();
+                if !token.is_empty() {
+                    if let Ok(mut auth) = reqwest::header::HeaderValue::from_str(
+                        &format!("Bearer {token}")
+                    ) {
+                        auth.set_sensitive(true);
+                        headers.insert(reqwest::header::AUTHORIZATION, auth);
+                    }
+                }
+            }
+            headers
+        })
         .build()
         .map_err(|e| format!("Failed to create download client: {e}"))?;
 
@@ -697,7 +712,7 @@ pub(crate) async fn download_url_to_path_with_progress(
     if !status.is_success() {
         let hint = match status.as_u16() {
             404 => "The runtime component archive was not found. If this is a local build, the release artifacts may not have been uploaded to GitHub yet. Set the AUDRAFLOW_COMPONENT_WHISPER_URL or AUDRAFLOW_COMPONENT_FFMPEG_URL environment variable to a local zip path.".to_string(),
-            403 => "Access to the download URL was denied. The GitHub release may not be published yet.".to_string(),
+            403 => "Access to the download URL was denied. If the repo is private, set the AUDRAFLOW_GITHUB_TOKEN environment variable or configure secrets.AUDRAFLOW_RELEASE_READ_TOKEN in CI.".to_string(),
             _ => format!("HTTP {}", status),
         };
         return Err(format!("Runtime component download failed: {hint} (URL: {url})"));
