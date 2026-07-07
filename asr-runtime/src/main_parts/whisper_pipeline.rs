@@ -16,14 +16,14 @@ fn run_whisper_pipeline_pass(
 ) -> anyhow::Result<WhisperPipelinePass> {
     // ── Step 1: Analyze audio metadata ────────────────────────────────────
     log::info!("[1/4] Analyzing {label}: {}", file_path.display());
-    let mut info = pipeline
-        .analyze(file_path, file_hash)
-        .map_err(|e| {
-            use std::io::Write;
-            eprintln!("FATAL_ANALYZE: {e:#}");
-            std::io::stderr().flush().ok();
-            e
-        })?;
+    let mut info = match pipeline.analyze(file_path, file_hash) {
+        Ok(info) => info,
+        Err(e) => {
+            let msg = format!("FATAL_ANALYZE: {e:#}");
+            let _ = std::fs::write("/tmp/audraflow-crash.log", &msg);
+            return Err(e);
+        }
+    };
 
     // ── Step 2: Decode to 16kHz mono WAV ──────────────────────────────────
     log::info!("[2/4] Decoding {label}...");

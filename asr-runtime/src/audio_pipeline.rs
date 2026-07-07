@@ -129,6 +129,7 @@ impl AudioPipeline {
 
     /// Extract full audio metadata and compute SNR/speech density.
     pub fn analyze(&self, file_path: &Path, file_hash: &str) -> anyhow::Result<AudioInfo> {
+        { use std::io::Write; eprintln!("ENTER_ANALYZE_FN: {}", file_path.display()); std::io::stderr().flush().ok(); }
         if !file_path.is_file() {
             anyhow::bail!(
                 "Input is not a regular file (dir={}, exists={}): {}",
