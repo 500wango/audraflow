@@ -42,6 +42,8 @@ fn validate_runtime_model_path(model_path: &str) -> Result<(), String> {
 fn runtime_transcribe_command(job: &QueueItem) -> Result<tokio::process::Command, String> {
     let asr_engine = normalize_asr_engine_hint(job.asr_engine.as_deref());
     let file_path = resolve_media_file_path(&job.file_path)?;
+    eprintln!("ORCHESTRATOR: transcribing file={file_path} (stored={})", job.file_path);
+    log::info!("ASR transcribe: engine={asr_engine} file={file_path}");
     let mut command = runtime_base_command();
     command
         .arg("transcribe")

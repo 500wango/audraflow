@@ -61,6 +61,9 @@
       "binaries/audraflow-orchestrator",
       "binaries/audraflow-asr-runtime"
     ],
+    "resources": [
+      "default-models/ggml-base.bin"
+    ],
     "windows": {
       "wix": {
         "language": "zh-CN"
