@@ -301,9 +301,9 @@ fn runtime_app_data_dir() -> PathBuf {
 fn preview_bytes(bytes: &[u8]) -> String {
     let text = String::from_utf8_lossy(bytes);
     let trimmed = text.trim();
-    if trimmed.chars().count() <= 500 {
+    if trimmed.chars().count() <= 2000 {
         trimmed.to_string()
     } else {
-        format!("{}...", trimmed.chars().take(500).collect::<String>())
+        format!("{}...", trimmed.chars().take(2000).collect::<String>())
     }
 }
