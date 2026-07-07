@@ -1,4 +1,5 @@
-fn resolve_system_python_invocation() -> Option<RuntimeInvocation> {
+use crate::*;
+pub(crate) fn resolve_system_python_invocation() -> Option<RuntimeInvocation> {
     if let Some(path) = command_env_override("AUDRAFLOW_PYTHON_BIN")
         .or_else(|| command_env_override("FT_PYTHON_BIN"))
     {
@@ -24,7 +25,7 @@ fn resolve_system_python_invocation() -> Option<RuntimeInvocation> {
     })
 }
 
-async fn run_runtime_invocation_with_timeout(
+pub(crate) async fn run_runtime_invocation_with_timeout(
     invocation: &RuntimeInvocation,
     args: &[String],
     timeout: Duration,
@@ -41,7 +42,7 @@ async fn run_runtime_invocation_with_timeout(
     .map_err(|e| format!("Failed to start {label} at {}: {e}", invocation.display))
 }
 
-fn preflight_url_import_dependencies(
+pub(crate) fn preflight_url_import_dependencies(
     app_handle: &tauri::AppHandle,
     url: &str,
     skip_start_seconds: f64,
@@ -71,7 +72,7 @@ fn preflight_url_import_dependencies(
     Ok(())
 }
 
-fn preflight_transcription_dependencies(
+pub(crate) fn preflight_transcription_dependencies(
     app_handle: &tauri::AppHandle,
     asr_engine: &str,
 ) -> Result<(), String> {
@@ -111,7 +112,7 @@ fn preflight_transcription_dependencies(
     }
 }
 
-fn ensure_funasr_cli_startable(command: PathBuf, message: &str) -> Result<(), String> {
+pub(crate) fn ensure_funasr_cli_startable(command: PathBuf, message: &str) -> Result<(), String> {
     let args = vec!["--help".into()];
     let output = run_runtime_probe_with_timeout(&command, &args, Duration::from_secs(8))
         .map_err(|error| format!("{message} Detail: {error}"))?;
@@ -126,7 +127,7 @@ fn ensure_funasr_cli_startable(command: PathBuf, message: &str) -> Result<(), St
     ))
 }
 
-fn preflight_requested_transcription_dependencies(
+pub(crate) fn preflight_requested_transcription_dependencies(
     app_handle: &tauri::AppHandle,
     asr_engine: Option<&str>,
     audio_mode: Option<&str>,
@@ -172,7 +173,7 @@ fn preflight_requested_transcription_dependencies(
     preflight_transcription_dependencies(app_handle, &resolved_engine)
 }
 
-fn ensure_runtime_command_available(
+pub(crate) fn ensure_runtime_command_available(
     command: PathBuf,
     label: &str,
     recovery_hint: &str,
@@ -187,7 +188,7 @@ fn ensure_runtime_command_available(
     }
 }
 
-fn ensure_runtime_command_startable(
+pub(crate) fn ensure_runtime_command_startable(
     command: PathBuf,
     args: &[&str],
     timeout: Duration,
@@ -208,7 +209,7 @@ fn ensure_runtime_command_startable(
     }
 }
 
-fn ensure_sensevoice_python_available() -> Result<(), String> {
+pub(crate) fn ensure_sensevoice_python_available() -> Result<(), String> {
     let invocation = resolve_python_invocation().ok_or_else(|| {
         "SenseVoice requires Python. Use Settings to create AudraFlow's isolated Python environment, install Python 3, or set AUDRAFLOW_PYTHON_BIN.".to_string()
     })?;
@@ -242,7 +243,7 @@ print("sensevoice dependencies ready")
     ))
 }
 
-fn run_runtime_probe_with_timeout(
+pub(crate) fn run_runtime_probe_with_timeout(
     program: &Path,
     args: &[String],
     timeout: Duration,
@@ -271,7 +272,7 @@ fn run_runtime_probe_with_timeout(
     }
 }
 
-fn is_runtime_command_available(command: &Path) -> bool {
+pub(crate) fn is_runtime_command_available(command: &Path) -> bool {
     if command.is_file() {
         return true;
     }
@@ -285,7 +286,7 @@ fn is_runtime_command_available(command: &Path) -> bool {
         .is_some()
 }
 
-fn is_probable_platform_url(parsed: &reqwest::Url) -> bool {
+pub(crate) fn is_probable_platform_url(parsed: &reqwest::Url) -> bool {
     let Some(host) = parsed.host_str().map(|host| host.to_ascii_lowercase()) else {
         return false;
     };
@@ -309,7 +310,7 @@ fn is_probable_platform_url(parsed: &reqwest::Url) -> bool {
     known_platform && !is_probable_direct_media_url(parsed)
 }
 
-fn is_probable_direct_media_url(parsed: &reqwest::Url) -> bool {
+pub(crate) fn is_probable_direct_media_url(parsed: &reqwest::Url) -> bool {
     parsed
         .path_segments()
         .and_then(|mut segments| segments.next_back())
@@ -318,21 +319,21 @@ fn is_probable_direct_media_url(parsed: &reqwest::Url) -> bool {
 }
 
 #[derive(Debug, Clone)]
-struct RuntimeInvocation {
+pub(crate) struct RuntimeInvocation {
     program: PathBuf,
     base_args: Vec<String>,
     display: String,
 }
 
 #[derive(Debug)]
-struct FunAsrModelHealthPaths {
+pub(crate) struct FunAsrModelHealthPaths {
     model_dir: Option<PathBuf>,
     encoder_path: PathBuf,
     llm_path: PathBuf,
     vad_path: Option<PathBuf>,
 }
 
-fn resolve_python_invocation() -> Option<RuntimeInvocation> {
+pub(crate) fn resolve_python_invocation() -> Option<RuntimeInvocation> {
     if let Some(path) = command_env_override("AUDRAFLOW_PYTHON_BIN")
         .or_else(|| command_env_override("FT_PYTHON_BIN"))
     {
@@ -366,7 +367,7 @@ fn resolve_python_invocation() -> Option<RuntimeInvocation> {
     })
 }
 
-fn find_managed_python_invocation() -> Option<RuntimeInvocation> {
+pub(crate) fn find_managed_python_invocation() -> Option<RuntimeInvocation> {
     let python = managed_python_bin();
     if python.is_file() {
         return Some(RuntimeInvocation {
@@ -378,7 +379,7 @@ fn find_managed_python_invocation() -> Option<RuntimeInvocation> {
     None
 }
 
-fn managed_python_bin() -> PathBuf {
+pub(crate) fn managed_python_bin() -> PathBuf {
     let venv_dir = runtime_component_dir("python-venv");
     if cfg!(windows) {
         venv_dir.join("Scripts").join("python.exe")
@@ -387,7 +388,7 @@ fn managed_python_bin() -> PathBuf {
     }
 }
 
-fn find_bundled_python_invocation() -> Option<RuntimeInvocation> {
+pub(crate) fn find_bundled_python_invocation() -> Option<RuntimeInvocation> {
     for root in runtime_search_roots() {
         for candidate in [
             root.join("bin").join("python").join("python.exe"),
@@ -409,7 +410,7 @@ fn find_bundled_python_invocation() -> Option<RuntimeInvocation> {
     None
 }
 
-fn resolve_demucs_invocation_for_health() -> Option<RuntimeInvocation> {
+pub(crate) fn resolve_demucs_invocation_for_health() -> Option<RuntimeInvocation> {
     if let Some(path) = command_env_override("AUDRAFLOW_DEMUCS_BIN")
         .or_else(|| command_env_override("FT_DEMUCS_BIN"))
     {
@@ -464,14 +465,14 @@ fn resolve_demucs_invocation_for_health() -> Option<RuntimeInvocation> {
     None
 }
 
-fn is_py_launcher(program: &Path) -> bool {
+pub(crate) fn is_py_launcher(program: &Path) -> bool {
     program
         .file_stem()
         .and_then(|value| value.to_str())
         .is_some_and(|stem| stem.eq_ignore_ascii_case("py"))
 }
 
-fn resolve_funasr_model_paths(
+pub(crate) fn resolve_funasr_model_paths(
     app_handle: &tauri::AppHandle,
 ) -> Result<FunAsrModelHealthPaths, String> {
     if let (Some(encoder_path), Some(llm_path)) = (
@@ -514,7 +515,7 @@ fn resolve_funasr_model_paths(
     })
 }
 
-fn funasr_model_dirs_for_health(app_handle: &tauri::AppHandle) -> Vec<PathBuf> {
+pub(crate) fn funasr_model_dirs_for_health(app_handle: &tauri::AppHandle) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     if let Some(path) = command_env_override("AUDRAFLOW_FUNASR_MODEL_DIR")
         .or_else(|| command_env_override("FT_FUNASR_MODEL_DIR"))
@@ -533,13 +534,13 @@ fn funasr_model_dirs_for_health(app_handle: &tauri::AppHandle) -> Vec<PathBuf> {
     dedupe_path_list(dirs)
 }
 
-fn find_first_named_file(dirs: &[PathBuf], names: &[&str]) -> Option<PathBuf> {
+pub(crate) fn find_first_named_file(dirs: &[PathBuf], names: &[&str]) -> Option<PathBuf> {
     dirs.iter()
         .flat_map(|dir| names.iter().map(move |name| dir.join(name)))
         .find(|path| path.is_file())
 }
 
-fn ensure_runtime_file(path: &Path, label: &str) -> Result<(), String> {
+pub(crate) fn ensure_runtime_file(path: &Path, label: &str) -> Result<(), String> {
     if path.is_file() {
         Ok(())
     } else {

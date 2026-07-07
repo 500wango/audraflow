@@ -1,5 +1,6 @@
+use crate::*;
 #[tauri::command]
-async fn cmd_record_telemetry_event(
+pub(crate) async fn cmd_record_telemetry_event(
     app_handle: tauri::AppHandle,
     request: TelemetryEventRequest,
 ) -> Result<(), String> {
@@ -7,14 +8,14 @@ async fn cmd_record_telemetry_event(
 }
 
 #[tauri::command]
-async fn cmd_get_telemetry_consent(
+pub(crate) async fn cmd_get_telemetry_consent(
     app_handle: tauri::AppHandle,
 ) -> Result<TelemetryConsentState, String> {
     read_telemetry_consent(&app_handle)
 }
 
 #[tauri::command]
-async fn cmd_set_telemetry_consent(
+pub(crate) async fn cmd_set_telemetry_consent(
     app_handle: tauri::AppHandle,
     request: SetTelemetryConsentRequest,
 ) -> Result<TelemetryConsentState, String> {
@@ -22,7 +23,7 @@ async fn cmd_set_telemetry_consent(
 }
 
 #[tauri::command]
-async fn cmd_clear_local_history(
+pub(crate) async fn cmd_clear_local_history(
     app_handle: tauri::AppHandle,
 ) -> Result<PrivacyActionResult, String> {
     let db_path = storage_db_path()?;
@@ -43,7 +44,7 @@ async fn cmd_clear_local_history(
 }
 
 #[tauri::command]
-async fn cmd_delete_model_cache(
+pub(crate) async fn cmd_delete_model_cache(
     app_handle: tauri::AppHandle,
 ) -> Result<PrivacyActionResult, String> {
     let model_dir = model_cache_dir(&app_handle)?;
@@ -58,27 +59,30 @@ async fn cmd_delete_model_cache(
 }
 
 #[tauri::command]
-async fn cmd_get_model_settings(app_handle: tauri::AppHandle) -> Result<ModelSettingsDto, String> {
+pub(crate) async fn cmd_get_model_settings(app_handle: tauri::AppHandle) -> Result<ModelSettingsDto, String> {
     model_settings(&app_handle)
 }
 
 #[tauri::command]
-async fn cmd_get_model_catalog(
+pub(crate) async fn cmd_get_model_catalog(
     app_handle: tauri::AppHandle,
 ) -> Result<Vec<ModelCatalogEntryDto>, String> {
     builtin_model_catalog(&app_handle)
 }
 
 #[tauri::command]
-async fn cmd_import_local_model(
+pub(crate) async fn cmd_import_local_model(
     app_handle: tauri::AppHandle,
     request: ImportLocalModelRequest,
 ) -> Result<ModelSettingsDto, String> {
-    import_local_model(&app_handle, request)
+    let app_handle_clone = app_handle.clone();
+    tokio::task::spawn_blocking(move || import_local_model(&app_handle_clone, request))
+        .await
+        .map_err(|e| format!("Import task panicked: {e}"))?
 }
 
 #[tauri::command]
-async fn cmd_download_model(
+pub(crate) async fn cmd_download_model(
     app_handle: tauri::AppHandle,
     request: DownloadModelRequest,
 ) -> Result<ModelActionResult, String> {
@@ -86,7 +90,7 @@ async fn cmd_download_model(
 }
 
 #[tauri::command]
-async fn cmd_select_model(
+pub(crate) async fn cmd_select_model(
     app_handle: tauri::AppHandle,
     request: SelectModelRequest,
 ) -> Result<ModelSettingsDto, String> {
@@ -98,7 +102,7 @@ async fn cmd_select_model(
 }
 
 #[tauri::command]
-async fn cmd_delete_model(
+pub(crate) async fn cmd_delete_model(
     app_handle: tauri::AppHandle,
     request: DeleteModelRequest,
 ) -> Result<ModelActionResult, String> {
@@ -130,7 +134,7 @@ async fn cmd_delete_model(
 }
 
 #[tauri::command]
-async fn cmd_clear_unused_models(
+pub(crate) async fn cmd_clear_unused_models(
     app_handle: tauri::AppHandle,
 ) -> Result<ModelActionResult, String> {
     let manager = model_manager(&app_handle)?;
@@ -170,31 +174,31 @@ async fn cmd_clear_unused_models(
 }
 
 #[tauri::command]
-async fn cmd_get_diagnostics_preview(
+pub(crate) async fn cmd_get_diagnostics_preview(
     app_handle: tauri::AppHandle,
 ) -> Result<DiagnosticsPreview, String> {
     diagnostics_preview(&app_handle)
 }
 
 #[tauri::command]
-async fn cmd_get_device_diagnostics() -> Result<DeviceDiagnosticsDto, String> {
+pub(crate) async fn cmd_get_device_diagnostics() -> Result<DeviceDiagnosticsDto, String> {
     Ok(detect_device_diagnostics())
 }
 
 #[tauri::command]
-async fn cmd_get_runtime_health(app_handle: tauri::AppHandle) -> Result<RuntimeHealthDto, String> {
+pub(crate) async fn cmd_get_runtime_health(app_handle: tauri::AppHandle) -> Result<RuntimeHealthDto, String> {
     Ok(runtime_health(&app_handle).await)
 }
 
 #[tauri::command]
-async fn cmd_get_runtime_components(
+pub(crate) async fn cmd_get_runtime_components(
     app_handle: tauri::AppHandle,
 ) -> Result<Vec<RuntimeComponentDto>, String> {
     Ok(runtime_components(&app_handle))
 }
 
 #[tauri::command]
-async fn cmd_download_runtime_component(
+pub(crate) async fn cmd_download_runtime_component(
     app_handle: tauri::AppHandle,
     id: String,
 ) -> Result<RuntimeComponentActionResultDto, String> {
@@ -210,7 +214,7 @@ async fn cmd_download_runtime_component(
 }
 
 #[tauri::command]
-async fn cmd_delete_runtime_component(
+pub(crate) async fn cmd_delete_runtime_component(
     app_handle: tauri::AppHandle,
     id: String,
 ) -> Result<RuntimeComponentActionResultDto, String> {
@@ -226,7 +230,7 @@ async fn cmd_delete_runtime_component(
 }
 
 #[tauri::command]
-async fn cmd_repair_runtime_dependency(
+pub(crate) async fn cmd_repair_runtime_dependency(
     app_handle: tauri::AppHandle,
     id: String,
 ) -> Result<RuntimeRepairResultDto, String> {
@@ -234,10 +238,10 @@ async fn cmd_repair_runtime_dependency(
 }
 
 #[tauri::command]
-async fn cmd_export_diagnostics_package(app_handle: tauri::AppHandle) -> Result<String, String> {
+pub(crate) async fn cmd_export_diagnostics_package(app_handle: tauri::AppHandle) -> Result<String, String> {
     let preview = diagnostics_preview(&app_handle)?;
     let payload = serde_json::json!({
-        "app_version": "0.1.0-alpha",
+        "app_version": env!("CARGO_PKG_VERSION"),
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
         "telemetry_enabled": preview.telemetry_enabled,

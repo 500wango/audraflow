@@ -1,4 +1,5 @@
-fn whisper_cli_command_for_app(app_handle: &tauri::AppHandle) -> PathBuf {
+use crate::*;
+pub(crate) fn whisper_cli_command_for_app(app_handle: &tauri::AppHandle) -> PathBuf {
     command_env_override("AUDRAFLOW_WHISPER_CLI")
         .or_else(|| command_env_override("FT_WHISPER_CLI"))
         .or_else(|| {
@@ -11,7 +12,7 @@ fn whisper_cli_command_for_app(app_handle: &tauri::AppHandle) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(whisper_cli_binary_name()))
 }
 
-fn funasr_cli_command_for_app(app_handle: &tauri::AppHandle) -> PathBuf {
+pub(crate) fn funasr_cli_command_for_app(app_handle: &tauri::AppHandle) -> PathBuf {
     command_env_override("AUDRAFLOW_FUNASR_CLI")
         .or_else(|| command_env_override("FT_FUNASR_CLI"))
         .or_else(|| {
@@ -24,7 +25,7 @@ fn funasr_cli_command_for_app(app_handle: &tauri::AppHandle) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(funasr_cli_binary_name()))
 }
 
-fn whisper_cli_binary_name() -> &'static str {
+pub(crate) fn whisper_cli_binary_name() -> &'static str {
     if cfg!(windows) {
         "whisper-cli.exe"
     } else {
@@ -32,7 +33,7 @@ fn whisper_cli_binary_name() -> &'static str {
     }
 }
 
-fn funasr_cli_binary_name() -> &'static str {
+pub(crate) fn funasr_cli_binary_name() -> &'static str {
     if cfg!(windows) {
         "llama-funasr-cli.exe"
     } else {
@@ -40,7 +41,7 @@ fn funasr_cli_binary_name() -> &'static str {
     }
 }
 
-fn tool_binary_name(name: &'static str) -> &'static str {
+pub(crate) fn tool_binary_name(name: &'static str) -> &'static str {
     match (cfg!(windows), name) {
         (true, "ffmpeg") => "ffmpeg.exe",
         (true, "ffprobe") => "ffprobe.exe",
@@ -48,7 +49,7 @@ fn tool_binary_name(name: &'static str) -> &'static str {
     }
 }
 
-fn find_dev_or_portable_tool(name: &str) -> Option<PathBuf> {
+pub(crate) fn find_dev_or_portable_tool(name: &str) -> Option<PathBuf> {
     for root in runtime_search_roots() {
         for candidate in [
             root.join(name),
@@ -96,7 +97,7 @@ fn find_dev_or_portable_tool(name: &str) -> Option<PathBuf> {
     None
 }
 
-fn find_staged_binary(root: &Path, name: &str) -> Option<PathBuf> {
+pub(crate) fn find_staged_binary(root: &Path, name: &str) -> Option<PathBuf> {
     let stem = name.strip_suffix(".exe").unwrap_or(name);
     let prefixed_stem = format!("audraflow-{stem}");
     for dir in [
@@ -124,7 +125,7 @@ fn find_staged_binary(root: &Path, name: &str) -> Option<PathBuf> {
     None
 }
 
-fn runtime_search_roots() -> Vec<PathBuf> {
+pub(crate) fn runtime_search_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
     if let Some(resource_dir) = std::env::var_os("AUDRAFLOW_RESOURCE_DIR") {
         roots.push(PathBuf::from(resource_dir));
@@ -138,7 +139,7 @@ fn runtime_search_roots() -> Vec<PathBuf> {
     dedupe_path_list(roots)
 }
 
-fn dedupe_path_list(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+pub(crate) fn dedupe_path_list(paths: Vec<PathBuf>) -> Vec<PathBuf> {
     let mut deduped = Vec::new();
     for path in paths {
         if !deduped.contains(&path) {
@@ -148,7 +149,7 @@ fn dedupe_path_list(paths: Vec<PathBuf>) -> Vec<PathBuf> {
     deduped
 }
 
-fn command_display_path(path: &Path) -> String {
+pub(crate) fn command_display_path(path: &Path) -> String {
     if path.is_absolute() || path.components().count() > 1 {
         return path.to_string_lossy().into_owned();
     }
@@ -160,7 +161,7 @@ fn command_display_path(path: &Path) -> String {
         .into_owned()
 }
 
-fn first_output_line(bytes: &[u8]) -> Option<String> {
+pub(crate) fn first_output_line(bytes: &[u8]) -> Option<String> {
     String::from_utf8_lossy(bytes)
         .lines()
         .map(str::trim)
@@ -168,7 +169,7 @@ fn first_output_line(bytes: &[u8]) -> Option<String> {
         .map(truncate_runtime_text)
 }
 
-fn short_output(bytes: &[u8]) -> Option<String> {
+pub(crate) fn short_output(bytes: &[u8]) -> Option<String> {
     let text = String::from_utf8_lossy(bytes);
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -178,7 +179,7 @@ fn short_output(bytes: &[u8]) -> Option<String> {
     }
 }
 
-fn truncate_runtime_text(text: &str) -> String {
+pub(crate) fn truncate_runtime_text(text: &str) -> String {
     const MAX_CHARS: usize = 180;
     if text.chars().count() <= MAX_CHARS {
         text.to_string()
@@ -187,7 +188,7 @@ fn truncate_runtime_text(text: &str) -> String {
     }
 }
 
-fn directory_size_bytes(path: &Path) -> Result<u64, String> {
+pub(crate) fn directory_size_bytes(path: &Path) -> Result<u64, String> {
     if !path.exists() {
         return Ok(0);
     }
@@ -204,7 +205,7 @@ fn directory_size_bytes(path: &Path) -> Result<u64, String> {
     Ok(total)
 }
 
-fn count_directory_children(path: &Path) -> Result<u64, String> {
+pub(crate) fn count_directory_children(path: &Path) -> Result<u64, String> {
     if !path.exists() {
         return Ok(0);
     }
@@ -214,7 +215,7 @@ fn count_directory_children(path: &Path) -> Result<u64, String> {
         .count() as u64)
 }
 
-fn clear_directory_children(path: &Path) -> Result<u64, String> {
+pub(crate) fn clear_directory_children(path: &Path) -> Result<u64, String> {
     if !path.exists() {
         return Ok(0);
     }

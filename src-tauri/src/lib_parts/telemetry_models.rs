@@ -1,4 +1,5 @@
-fn hash_file_sha256(path: &str) -> Result<String, String> {
+use crate::*;
+pub(crate) fn hash_file_sha256(path: &str) -> Result<String, String> {
     use std::io::Read;
 
     let mut file = std::fs::File::open(path).map_err(|e| format!("Failed to open file: {e}"))?;
@@ -18,14 +19,14 @@ fn hash_file_sha256(path: &str) -> Result<String, String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-fn now_unix_ms() -> i64 {
+pub(crate) fn now_unix_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_millis() as i64)
         .unwrap_or_default()
 }
 
-fn default_telemetry_consent() -> TelemetryConsentState {
+pub(crate) fn default_telemetry_consent() -> TelemetryConsentState {
     TelemetryConsentState {
         enabled: false,
         decided: false,
@@ -33,7 +34,7 @@ fn default_telemetry_consent() -> TelemetryConsentState {
     }
 }
 
-fn telemetry_consent_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn telemetry_consent_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(app_handle
         .path()
         .app_data_dir()
@@ -42,14 +43,14 @@ fn telemetry_consent_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, Stri
         .join("telemetry-consent.json"))
 }
 
-fn read_telemetry_consent_from_path(path: &Path) -> TelemetryConsentState {
+pub(crate) fn read_telemetry_consent_from_path(path: &Path) -> TelemetryConsentState {
     let Ok(raw) = std::fs::read_to_string(path) else {
         return default_telemetry_consent();
     };
     serde_json::from_str(&raw).unwrap_or_else(|_| default_telemetry_consent())
 }
 
-fn write_telemetry_consent_to_path(
+pub(crate) fn write_telemetry_consent_to_path(
     path: &Path,
     enabled: bool,
 ) -> Result<TelemetryConsentState, String> {
@@ -66,20 +67,20 @@ fn write_telemetry_consent_to_path(
     Ok(state)
 }
 
-fn read_telemetry_consent(app_handle: &tauri::AppHandle) -> Result<TelemetryConsentState, String> {
+pub(crate) fn read_telemetry_consent(app_handle: &tauri::AppHandle) -> Result<TelemetryConsentState, String> {
     Ok(read_telemetry_consent_from_path(&telemetry_consent_path(
         app_handle,
     )?))
 }
 
-fn write_telemetry_consent(
+pub(crate) fn write_telemetry_consent(
     app_handle: &tauri::AppHandle,
     enabled: bool,
 ) -> Result<TelemetryConsentState, String> {
     write_telemetry_consent_to_path(&telemetry_consent_path(app_handle)?, enabled)
 }
 
-fn hash_telemetry_id(value: &str) -> Option<String> {
+pub(crate) fn hash_telemetry_id(value: &str) -> Option<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
         return None;
@@ -90,7 +91,7 @@ fn hash_telemetry_id(value: &str) -> Option<String> {
     Some(format!("{:x}", hasher.finalize()))
 }
 
-fn sanitize_telemetry_token(value: Option<String>) -> Option<String> {
+pub(crate) fn sanitize_telemetry_token(value: Option<String>) -> Option<String> {
     value
         .map(|raw| {
             raw.chars()
@@ -102,7 +103,7 @@ fn sanitize_telemetry_token(value: Option<String>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn normalize_telemetry_event_type(event_type: &str) -> Result<String, String> {
+pub(crate) fn normalize_telemetry_event_type(event_type: &str) -> Result<String, String> {
     let normalized = event_type.trim().to_ascii_lowercase();
     match normalized.as_str() {
         "proofread_session_start"
@@ -115,7 +116,7 @@ fn normalize_telemetry_event_type(event_type: &str) -> Result<String, String> {
     }
 }
 
-fn telemetry_request_to_record(
+pub(crate) fn telemetry_request_to_record(
     request: TelemetryEventRequest,
 ) -> Result<LocalTelemetryRecord, String> {
     let event_type = normalize_telemetry_event_type(&request.event_type)?;
@@ -145,7 +146,7 @@ fn telemetry_request_to_record(
     })
 }
 
-fn append_local_telemetry(
+pub(crate) fn append_local_telemetry(
     app_handle: &tauri::AppHandle,
     record: &LocalTelemetryRecord,
 ) -> Result<(), String> {
@@ -167,7 +168,7 @@ fn append_local_telemetry(
     file.write_all(b"\n").map_err(|e| e.to_string())
 }
 
-fn telemetry_events_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn telemetry_events_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(app_handle
         .path()
         .app_data_dir()
@@ -176,7 +177,7 @@ fn telemetry_events_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, Strin
         .join("events.jsonl"))
 }
 
-fn model_cache_dir(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn model_cache_dir(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(app_handle
         .path()
         .app_data_dir()
@@ -184,7 +185,7 @@ fn model_cache_dir(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
         .join("models"))
 }
 
-fn model_manager(
+pub(crate) fn model_manager(
     app_handle: &tauri::AppHandle,
 ) -> Result<audraflow_model_manager::ModelManager, String> {
     let manager = audraflow_model_manager::ModelManager::new(model_cache_dir(app_handle)?);
@@ -192,11 +193,11 @@ fn model_manager(
     Ok(manager)
 }
 
-fn whisper_cpp_model_version() -> String {
+pub(crate) fn whisper_cpp_model_version() -> String {
     format!("whisper.cpp-{WHISPER_CPP_MODEL_COMMIT}")
 }
 
-fn bundled_default_model_info() -> audraflow_model_manager::ModelInfo {
+pub(crate) fn bundled_default_model_info() -> audraflow_model_manager::ModelInfo {
     audraflow_model_manager::ModelInfo {
         name: DEFAULT_WHISPER_MODEL_NAME.into(),
         version: whisper_cpp_model_version(),
@@ -208,11 +209,11 @@ fn bundled_default_model_info() -> audraflow_model_manager::ModelInfo {
     }
 }
 
-fn is_bundled_default_model_info(info: &audraflow_model_manager::ModelInfo) -> bool {
+pub(crate) fn is_bundled_default_model_info(info: &audraflow_model_manager::ModelInfo) -> bool {
     info.name == DEFAULT_WHISPER_MODEL_NAME && info.version == whisper_cpp_model_version()
 }
 
-fn ensure_bundled_default_model(
+pub(crate) fn ensure_bundled_default_model(
     app_handle: &tauri::AppHandle,
     manager: &audraflow_model_manager::ModelManager,
 ) -> Result<Option<audraflow_model_manager::InstalledModel>, String> {
@@ -271,7 +272,7 @@ fn ensure_bundled_default_model(
     Ok(Some(installed))
 }
 
-fn find_bundled_default_model(app_handle: &tauri::AppHandle) -> Option<PathBuf> {
+pub(crate) fn find_bundled_default_model(app_handle: &tauri::AppHandle) -> Option<PathBuf> {
     if let Some(path) = command_env_override("AUDRAFLOW_DEFAULT_MODEL_BIN") {
         if path.is_file() {
             return Some(path);
@@ -305,7 +306,7 @@ fn find_bundled_default_model(app_handle: &tauri::AppHandle) -> Option<PathBuf> 
         .find(|path| path.is_file())
 }
 
-fn installed_model_to_dto(
+pub(crate) fn installed_model_to_dto(
     model: audraflow_model_manager::InstalledModel,
     selected: Option<&audraflow_model_manager::InstalledModel>,
 ) -> ModelInfoDto {
@@ -325,7 +326,7 @@ fn installed_model_to_dto(
     }
 }
 
-fn model_settings(app_handle: &tauri::AppHandle) -> Result<ModelSettingsDto, String> {
+pub(crate) fn model_settings(app_handle: &tauri::AppHandle) -> Result<ModelSettingsDto, String> {
     let manager = model_manager(app_handle)?;
     ensure_bundled_default_model(app_handle, &manager)?;
     let selected = manager.selected_model().map_err(|e| e.to_string())?;
@@ -346,7 +347,7 @@ fn model_settings(app_handle: &tauri::AppHandle) -> Result<ModelSettingsDto, Str
     })
 }
 
-fn builtin_model_catalog(
+pub(crate) fn builtin_model_catalog(
     app_handle: &tauri::AppHandle,
 ) -> Result<Vec<ModelCatalogEntryDto>, String> {
     let manager = model_manager(app_handle)?;
@@ -413,7 +414,7 @@ fn builtin_model_catalog(
         .collect())
 }
 
-fn normalize_model_component(value: &str, default: &str) -> String {
+pub(crate) fn normalize_model_component(value: &str, default: &str) -> String {
     let normalized = value
         .trim()
         .chars()
@@ -426,7 +427,7 @@ fn normalize_model_component(value: &str, default: &str) -> String {
     }
 }
 
-fn default_transcription_language(model_language: &str) -> String {
+pub(crate) fn default_transcription_language(model_language: &str) -> String {
     let normalized = model_language.trim().to_ascii_lowercase();
     match normalized.as_str() {
         "" | "auto" | "multilingual" | "multi" => "auto".into(),
@@ -434,7 +435,7 @@ fn default_transcription_language(model_language: &str) -> String {
     }
 }
 
-fn normalize_transcription_language(
+pub(crate) fn normalize_transcription_language(
     language: Option<&str>,
     selected_model: Option<&audraflow_model_manager::InstalledModel>,
 ) -> String {
@@ -448,7 +449,7 @@ fn normalize_transcription_language(
     }
 }
 
-fn normalize_audio_mode(audio_mode: Option<&str>) -> String {
+pub(crate) fn normalize_audio_mode(audio_mode: Option<&str>) -> String {
     match audio_mode
         .unwrap_or("")
         .trim()
@@ -460,7 +461,7 @@ fn normalize_audio_mode(audio_mode: Option<&str>) -> String {
     }
 }
 
-fn normalize_asr_engine(asr_engine: Option<&str>) -> String {
+pub(crate) fn normalize_asr_engine(asr_engine: Option<&str>) -> String {
     match asr_engine
         .unwrap_or("")
         .trim()
@@ -475,7 +476,7 @@ fn normalize_asr_engine(asr_engine: Option<&str>) -> String {
     }
 }
 
-fn resolve_asr_engine(
+pub(crate) fn resolve_asr_engine(
     requested_engine: &str,
     _audio_mode: &str,
     has_whisper_model: bool,
@@ -489,14 +490,14 @@ fn resolve_asr_engine(
     }
 }
 
-fn is_whisper_cpp_model(model: &audraflow_model_manager::InstalledModel) -> bool {
+pub(crate) fn is_whisper_cpp_model(model: &audraflow_model_manager::InstalledModel) -> bool {
     matches!(
         &model.info.model_type,
         audraflow_model_manager::ModelType::WhisperCpp
     )
 }
 
-fn preferred_lyrics_whisper_model(
+pub(crate) fn preferred_lyrics_whisper_model(
     installed_models: &[audraflow_model_manager::InstalledModel],
     selected_model: Option<&audraflow_model_manager::InstalledModel>,
     extreme_accuracy: bool,
@@ -538,7 +539,7 @@ fn preferred_lyrics_whisper_model(
         })
 }
 
-fn find_whisper_model_by_preference(
+pub(crate) fn find_whisper_model_by_preference(
     installed_models: &[audraflow_model_manager::InstalledModel],
     preference: &str,
 ) -> Option<audraflow_model_manager::InstalledModel> {
@@ -551,7 +552,7 @@ fn find_whisper_model_by_preference(
         .cloned()
 }
 
-fn whisper_model_name_matches_preference(name: &str, preference: &str) -> bool {
+pub(crate) fn whisper_model_name_matches_preference(name: &str, preference: &str) -> bool {
     let name = name.trim().to_ascii_lowercase();
     match preference {
         "large" => name.starts_with("large"),
@@ -560,7 +561,7 @@ fn whisper_model_name_matches_preference(name: &str, preference: &str) -> bool {
     }
 }
 
-fn resolve_whisper_model_for_job(
+pub(crate) fn resolve_whisper_model_for_job(
     asr_engine: &str,
     audio_mode: &str,
     selected_model: Option<audraflow_model_manager::InstalledModel>,
@@ -582,7 +583,7 @@ fn resolve_whisper_model_for_job(
     selected_model
 }
 
-fn normalize_vocal_separation(vocal_separation: Option<&str>, audio_mode: &str) -> String {
+pub(crate) fn normalize_vocal_separation(vocal_separation: Option<&str>, audio_mode: &str) -> String {
     if audio_mode != "music" {
         return "off".into();
     }
@@ -598,7 +599,7 @@ fn normalize_vocal_separation(vocal_separation: Option<&str>, audio_mode: &str) 
     }
 }
 
-fn cross_platform_file_stem(path: &Path) -> String {
+pub(crate) fn cross_platform_file_stem(path: &Path) -> String {
     let raw = path.to_string_lossy();
     let file_name = raw
         .rsplit(['/', '\\'])
@@ -613,7 +614,7 @@ fn cross_platform_file_stem(path: &Path) -> String {
         .to_string()
 }
 
-fn infer_model_name(path: &Path, requested: Option<String>) -> String {
+pub(crate) fn infer_model_name(path: &Path, requested: Option<String>) -> String {
     requested
         .map(|value| normalize_model_component(&value, "whisper-local"))
         .unwrap_or_else(|| {
@@ -623,13 +624,13 @@ fn infer_model_name(path: &Path, requested: Option<String>) -> String {
         })
 }
 
-fn infer_model_version(requested: Option<String>) -> String {
+pub(crate) fn infer_model_version(requested: Option<String>) -> String {
     requested
         .map(|value| normalize_model_component(&value, "local"))
         .unwrap_or_else(|| "local".into())
 }
 
-fn infer_model_name_from_url(url: &str, requested: Option<String>) -> String {
+pub(crate) fn infer_model_name_from_url(url: &str, requested: Option<String>) -> String {
     requested
         .map(|value| normalize_model_component(&value, "whisper-remote"))
         .unwrap_or_else(|| {
@@ -652,7 +653,7 @@ fn infer_model_name_from_url(url: &str, requested: Option<String>) -> String {
         })
 }
 
-fn import_local_model(
+pub(crate) fn import_local_model(
     app_handle: &tauri::AppHandle,
     request: ImportLocalModelRequest,
 ) -> Result<ModelSettingsDto, String> {
@@ -696,7 +697,7 @@ fn import_local_model(
     model_settings(app_handle)
 }
 
-async fn download_model(
+pub(crate) async fn download_model(
     app_handle: tauri::AppHandle,
     request: DownloadModelRequest,
 ) -> Result<ModelActionResult, String> {
@@ -766,11 +767,11 @@ async fn download_model(
     })
 }
 
-fn file_size_or_zero(path: &Path) -> u64 {
+pub(crate) fn file_size_or_zero(path: &Path) -> u64 {
     std::fs::metadata(path).map(|meta| meta.len()).unwrap_or(0)
 }
 
-fn format_file_size(bytes: u64) -> String {
+pub(crate) fn format_file_size(bytes: u64) -> String {
     const KIB: f64 = 1024.0;
     const MIB: f64 = KIB * 1024.0;
     const GIB: f64 = MIB * 1024.0;

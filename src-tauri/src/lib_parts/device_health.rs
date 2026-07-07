@@ -1,4 +1,5 @@
-fn detect_nvidia_device() -> Option<(String, f64, String, String)> {
+use crate::*;
+pub(crate) fn detect_nvidia_device() -> Option<(String, f64, String, String)> {
     let output = std::process::Command::new("nvidia-smi")
         .args([
             "--query-gpu=name,memory.total,cuda_version,driver_version",
@@ -32,7 +33,7 @@ fn detect_nvidia_device() -> Option<(String, f64, String, String)> {
     ))
 }
 
-fn detect_device_diagnostics() -> DeviceDiagnosticsDto {
+pub(crate) fn detect_device_diagnostics() -> DeviceDiagnosticsDto {
     let cpu_cores = num_cpus::get() as u32;
     let nvidia = detect_nvidia_device();
     let cuda_available = nvidia.is_some();
@@ -56,7 +57,7 @@ fn detect_device_diagnostics() -> DeviceDiagnosticsDto {
     }
 }
 
-async fn runtime_health(app_handle: &tauri::AppHandle) -> RuntimeHealthDto {
+pub(crate) async fn runtime_health(app_handle: &tauri::AppHandle) -> RuntimeHealthDto {
     let mut items = vec![
         probe_default_whisper_model(app_handle),
         probe_runtime_command(
@@ -123,7 +124,7 @@ async fn runtime_health(app_handle: &tauri::AppHandle) -> RuntimeHealthDto {
     }
 }
 
-fn runtime_dependency_sort_key(id: &str) -> u8 {
+pub(crate) fn runtime_dependency_sort_key(id: &str) -> u8 {
     match id {
         "defaultWhisperModel" => 0,
         "vcRedist" => 1,
@@ -139,7 +140,7 @@ fn runtime_dependency_sort_key(id: &str) -> u8 {
     }
 }
 
-fn runtime_dependency_repairable(id: &str) -> bool {
+pub(crate) fn runtime_dependency_repairable(id: &str) -> bool {
     matches!(
         id,
         "defaultWhisperModel"

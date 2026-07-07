@@ -1,5 +1,6 @@
+use crate::*;
 #[allow(clippy::too_many_arguments)]
-fn create_job_for_local_file(
+pub(crate) async fn create_job_for_local_file(
     app_handle: &tauri::AppHandle,
     file_path: String,
     file_hash: String,
@@ -13,7 +14,11 @@ fn create_job_for_local_file(
     let job_id = uuid::Uuid::new_v4().to_string();
     log::info!("Creating job {} for file: {}", job_id, file_path);
     let file_hash = if file_hash.trim().is_empty() {
-        hash_file_sha256(&file_path)?
+        let path = file_path.clone();
+        tokio::task::spawn_blocking(move || hash_file_sha256(&path))
+            .await
+            .map_err(|e| format!("Hash task panicked: {e}"))?
+            .map_err(|e| e.to_string())?
     } else {
         file_hash
     };
@@ -85,7 +90,7 @@ fn create_job_for_local_file(
         audio_duration_s: None,
         snr_db: None,
         estimated_speakers: None,
-    }))?;
+    })).await?;
 
     match response {
         IpcMessage::JobPlan(_) => Ok(JobStatus {
@@ -178,7 +183,7 @@ pub fn run() {
 
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
-async fn cmd_create_job(
+pub(crate) async fn cmd_create_job(
     app_handle: tauri::AppHandle,
     file_path: String,
     file_hash: String,
@@ -199,11 +204,11 @@ async fn cmd_create_job(
         vocal_separation,
         extreme_accuracy,
         export_formats,
-    )
+    ).await
 }
 
 #[tauri::command]
-async fn cmd_scan_media_folder(folder_path: String) -> Result<Vec<String>, String> {
+pub(crate) async fn cmd_scan_media_folder(folder_path: String) -> Result<Vec<String>, String> {
     let folder = PathBuf::from(folder_path.trim());
     let files = scan_media_folder(&folder)?;
     if files.is_empty() {
@@ -214,7 +219,7 @@ async fn cmd_scan_media_folder(folder_path: String) -> Result<Vec<String>, Strin
 }
 
 #[tauri::command]
-async fn cmd_inspect_media_files(file_paths: Vec<String>) -> Result<Vec<MediaFileInfo>, String> {
+pub(crate) async fn cmd_inspect_media_files(file_paths: Vec<String>) -> Result<Vec<MediaFileInfo>, String> {
     let mut infos = Vec::new();
     for file_path in file_paths {
         let path = PathBuf::from(file_path.trim());
@@ -231,7 +236,7 @@ async fn cmd_inspect_media_files(file_paths: Vec<String>) -> Result<Vec<MediaFil
 }
 
 #[tauri::command]
-async fn cmd_create_job_from_url(
+pub(crate) async fn cmd_create_job_from_url(
     app_handle: tauri::AppHandle,
     request: CreateJobFromUrlRequest,
 ) -> Result<JobStatus, String> {
@@ -310,7 +315,7 @@ async fn cmd_create_job_from_url(
         request.vocal_separation,
         request.extreme_accuracy,
         request.export_formats,
-    )?;
+    ).await?;
     emit_job_log(
         &app_handle,
         &client_job_id,
@@ -341,7 +346,7 @@ async fn cmd_create_job_from_url(
 }
 
 #[tauri::command]
-async fn cmd_create_url_preview(
+pub(crate) async fn cmd_create_url_preview(
     app_handle: tauri::AppHandle,
     request: UrlPreviewRequest,
 ) -> Result<UrlPreviewResponse, String> {
@@ -350,7 +355,7 @@ async fn cmd_create_url_preview(
 }
 
 #[tauri::command]
-async fn cmd_list_jobs(limit: Option<u32>) -> Result<Vec<JobSummaryDto>, String> {
+pub(crate) async fn cmd_list_jobs(limit: Option<u32>) -> Result<Vec<JobSummaryDto>, String> {
     let db_path = storage_db_path()?;
     let storage = audraflow_storage::Storage::open(&db_path).map_err(|e| e.to_string())?;
     let limit = limit.unwrap_or(100).clamp(1, 500) as usize;
@@ -359,17 +364,11 @@ async fn cmd_list_jobs(limit: Option<u32>) -> Result<Vec<JobSummaryDto>, String>
         .map_err(|e| e.to_string())?
         .into_iter()
         .map(|job| job_summary_to_dto(&storage, job))
-        .filter(|result| {
-            result
-                .as_ref()
-                .map(|job| job.state == "completed")
-                .unwrap_or(true)
-        })
-        .collect()
+        .collect::<Result<Vec<_>, _>>()
 }
 
 #[tauri::command]
-async fn cmd_get_job_status(job_id: String) -> Result<JobStatus, String> {
+pub(crate) async fn cmd_get_job_status(job_id: String) -> Result<JobStatus, String> {
     log::debug!("Querying status for job: {}", job_id);
     let response = send_orchestrator_message(IpcMessage::JobStatus(JobStatus {
         job_id: job_id.clone(),
@@ -379,62 +378,62 @@ async fn cmd_get_job_status(job_id: String) -> Result<JobStatus, String> {
         estimated_remaining_s: None,
         rtf_current: None,
         ttfv_s: None,
-    }))?;
+    })).await?;
     expect_job_status(response)
 }
 
 #[tauri::command]
-async fn cmd_cancel_job(job_id: String) -> Result<JobStatus, String> {
+pub(crate) async fn cmd_cancel_job(job_id: String) -> Result<JobStatus, String> {
     log::info!("Cancelling job: {}", job_id);
     let response = send_orchestrator_message(IpcMessage::JobCancel(JobControl {
         job_id,
         reason: Some("user_cancelled".into()),
-    }))?;
+    })).await?;
     expect_job_status(response)
 }
 
 #[tauri::command]
-async fn cmd_pause_job(job_id: String) -> Result<JobStatus, String> {
+pub(crate) async fn cmd_pause_job(job_id: String) -> Result<JobStatus, String> {
     log::info!("Pausing job: {}", job_id);
     let response = send_orchestrator_message(IpcMessage::JobPause(JobControl {
         job_id,
         reason: Some("user_paused".into()),
-    }))?;
+    })).await?;
     expect_job_status(response)
 }
 
 #[tauri::command]
-async fn cmd_resume_job(job_id: String) -> Result<JobStatus, String> {
+pub(crate) async fn cmd_resume_job(job_id: String) -> Result<JobStatus, String> {
     log::info!("Resuming job: {}", job_id);
     let response = send_orchestrator_message(IpcMessage::JobResume(JobControl {
         job_id,
         reason: Some("user_resumed".into()),
-    }))?;
+    })).await?;
     expect_job_status(response)
 }
 
 #[tauri::command]
-async fn cmd_retry_job(job_id: String) -> Result<JobStatus, String> {
+pub(crate) async fn cmd_retry_job(job_id: String) -> Result<JobStatus, String> {
     log::info!("Retrying job: {}", job_id);
     let response = send_orchestrator_message(IpcMessage::JobRetry(JobControl {
         job_id,
         reason: Some("user_retried".into()),
-    }))?;
+    })).await?;
     expect_job_status(response)
 }
 
 #[tauri::command]
-async fn cmd_skip_job(job_id: String) -> Result<JobStatus, String> {
+pub(crate) async fn cmd_skip_job(job_id: String) -> Result<JobStatus, String> {
     log::info!("Skipping job: {}", job_id);
     let response = send_orchestrator_message(IpcMessage::JobSkip(JobControl {
         job_id,
         reason: Some("user_skipped".into()),
-    }))?;
+    })).await?;
     expect_job_status(response)
 }
 
 #[tauri::command]
-async fn cmd_get_transcript(job_id: String) -> Result<TranscriptResponse, String> {
+pub(crate) async fn cmd_get_transcript(job_id: String) -> Result<TranscriptResponse, String> {
     log::info!("Loading transcript for job {}", job_id);
     let db_path = storage_db_path()?;
     let storage = audraflow_storage::Storage::open(&db_path).map_err(|e| e.to_string())?;
@@ -461,7 +460,7 @@ async fn cmd_get_transcript(job_id: String) -> Result<TranscriptResponse, String
 }
 
 #[tauri::command]
-async fn cmd_search_transcript(
+pub(crate) async fn cmd_search_transcript(
     job_id: String,
     query: String,
 ) -> Result<Vec<TranscriptSegmentDto>, String> {
@@ -475,7 +474,7 @@ async fn cmd_search_transcript(
 }
 
 #[tauri::command]
-async fn cmd_update_segment(
+pub(crate) async fn cmd_update_segment(
     app_handle: tauri::AppHandle,
     request: UpdateSegmentRequest,
 ) -> Result<TranscriptSegmentDto, String> {
@@ -593,7 +592,7 @@ async fn cmd_update_segment(
 }
 
 #[tauri::command]
-async fn cmd_accept_term_candidate(
+pub(crate) async fn cmd_accept_term_candidate(
     request: AcceptTermCandidateRequest,
 ) -> Result<TranscriptSegmentDto, String> {
     let segment_id = request.segment_id.trim().to_string();
@@ -636,7 +635,7 @@ async fn cmd_accept_term_candidate(
 }
 
 #[tauri::command]
-async fn cmd_add_glossary_entry(
+pub(crate) async fn cmd_add_glossary_entry(
     request: AddGlossaryEntryRequest,
 ) -> Result<GlossaryApplyResult, String> {
     let canonical = request.canonical.trim().to_string();
@@ -695,7 +694,7 @@ async fn cmd_add_glossary_entry(
 }
 
 #[tauri::command]
-async fn cmd_save_glossary_entry(
+pub(crate) async fn cmd_save_glossary_entry(
     request: SaveGlossaryEntryRequest,
 ) -> Result<Vec<GlossaryEntryDto>, String> {
     let canonical = request.canonical.trim().to_string();
@@ -735,7 +734,7 @@ async fn cmd_save_glossary_entry(
 }
 
 #[tauri::command]
-async fn cmd_list_glossary_entries() -> Result<Vec<GlossaryEntryDto>, String> {
+pub(crate) async fn cmd_list_glossary_entries() -> Result<Vec<GlossaryEntryDto>, String> {
     let db_path = storage_db_path()?;
     let storage = audraflow_storage::Storage::open(&db_path).map_err(|e| e.to_string())?;
     Ok(storage
@@ -747,7 +746,7 @@ async fn cmd_list_glossary_entries() -> Result<Vec<GlossaryEntryDto>, String> {
 }
 
 #[tauri::command]
-async fn cmd_delete_glossary_entry(id: i64) -> Result<Vec<GlossaryEntryDto>, String> {
+pub(crate) async fn cmd_delete_glossary_entry(id: i64) -> Result<Vec<GlossaryEntryDto>, String> {
     if id <= 0 {
         return Err("Glossary entry id must be positive".into());
     }
@@ -770,7 +769,7 @@ async fn cmd_delete_glossary_entry(id: i64) -> Result<Vec<GlossaryEntryDto>, Str
 }
 
 #[tauri::command]
-async fn cmd_update_speaker_label(
+pub(crate) async fn cmd_update_speaker_label(
     app_handle: tauri::AppHandle,
     request: UpdateSpeakerLabelRequest,
 ) -> Result<Vec<TranscriptSegmentDto>, String> {
@@ -851,7 +850,7 @@ async fn cmd_update_speaker_label(
 }
 
 #[tauri::command]
-async fn cmd_add_timestamp_mark(
+pub(crate) async fn cmd_add_timestamp_mark(
     app_handle: tauri::AppHandle,
     request: AddTimestampMarkRequest,
 ) -> Result<TranscriptSegmentDto, String> {

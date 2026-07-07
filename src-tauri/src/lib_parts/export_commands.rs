@@ -1,6 +1,7 @@
+use crate::*;
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
-async fn cmd_export_transcript(
+pub(crate) async fn cmd_export_transcript(
     app_handle: tauri::AppHandle,
     job_id: String,
     format: String,
@@ -89,7 +90,7 @@ async fn cmd_export_transcript(
 }
 
 #[tauri::command]
-async fn cmd_render_transcript_export(
+pub(crate) async fn cmd_render_transcript_export(
     job_id: String,
     format: String,
     include_speakers: bool,
@@ -120,7 +121,7 @@ async fn cmd_render_transcript_export(
     )
 }
 
-fn normalize_text_export_format(format: &str) -> Result<String, String> {
+pub(crate) fn normalize_text_export_format(format: &str) -> Result<String, String> {
     let normalized = format.trim().to_ascii_lowercase();
     match normalized.as_str() {
         "txt" | "text" | "plain" => Ok("txt".into()),
@@ -137,7 +138,7 @@ fn normalize_text_export_format(format: &str) -> Result<String, String> {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum SpeakerExportFilter {
+pub(crate) enum SpeakerExportFilter {
     All,
     NamedOnly,
     Hidden,
@@ -157,7 +158,7 @@ impl SpeakerExportFilter {
     }
 }
 
-fn normalize_speaker_filter(
+pub(crate) fn normalize_speaker_filter(
     speaker_filter: Option<&str>,
     include_speakers: bool,
 ) -> Result<SpeakerExportFilter, String> {
@@ -179,24 +180,17 @@ fn normalize_speaker_filter(
     }
 }
 
-fn should_render_speaker(speaker: Option<&str>, filter: SpeakerExportFilter) -> bool {
+pub(crate) fn should_render_speaker(speaker: Option<&str>, filter: SpeakerExportFilter) -> bool {
     match filter {
         SpeakerExportFilter::Hidden => false,
         SpeakerExportFilter::All => speaker.is_some_and(|value| !value.trim().is_empty()),
-        SpeakerExportFilter::NamedOnly => speaker.is_some_and(is_named_speaker),
+        SpeakerExportFilter::NamedOnly => {
+            speaker.is_some_and(audraflow_export::is_named_speaker)
+        }
     }
 }
 
-fn is_named_speaker(speaker: &str) -> bool {
-    let normalized = speaker.trim().to_ascii_lowercase();
-    !normalized.is_empty()
-        && normalized != "speaker"
-        && !normalized.strip_prefix("speaker ").is_some_and(|suffix| {
-            suffix.len() == 1 && suffix.chars().all(|ch| ch.is_ascii_alphabetic())
-        })
-}
-
-fn export_title_for_job(
+pub(crate) fn export_title_for_job(
     storage: &audraflow_storage::Storage,
     job_id: &str,
 ) -> Result<String, String> {
@@ -212,7 +206,7 @@ fn export_title_for_job(
         .unwrap_or_else(|| format!("Transcript {job_id}")))
 }
 
-fn default_export_output_path(
+pub(crate) fn default_export_output_path(
     app_handle: &tauri::AppHandle,
     job_id: &str,
     extension: &str,
@@ -226,7 +220,7 @@ fn default_export_output_path(
     Ok(output_dir.join(format!("transcript-{job_id}.{extension}")))
 }
 
-fn resolve_export_output_path(
+pub(crate) fn resolve_export_output_path(
     app_handle: &tauri::AppHandle,
     job_id: &str,
     extension: &str,
@@ -247,7 +241,7 @@ fn resolve_export_output_path(
     Ok(path)
 }
 
-fn storage_segments_to_ipc_segments(
+pub(crate) fn storage_segments_to_ipc_segments(
     storage: &audraflow_storage::Storage,
     segments: &[SegmentRow],
     include_marks: bool,
@@ -258,7 +252,7 @@ fn storage_segments_to_ipc_segments(
         .collect()
 }
 
-fn storage_segment_to_ipc_segment(
+pub(crate) fn storage_segment_to_ipc_segment(
     storage: &audraflow_storage::Storage,
     segment: &SegmentRow,
     include_marks: bool,
@@ -307,7 +301,7 @@ fn storage_segment_to_ipc_segment(
     })
 }
 
-fn correction_source_from_storage(source: &str) -> CorrectionSource {
+pub(crate) fn correction_source_from_storage(source: &str) -> CorrectionSource {
     match source.trim().to_ascii_lowercase().as_str() {
         "lexicon" => CorrectionSource::Lexicon,
         "merge" => CorrectionSource::Merge,
@@ -315,7 +309,7 @@ fn correction_source_from_storage(source: &str) -> CorrectionSource {
     }
 }
 
-fn render_export(
+pub(crate) fn render_export(
     storage: &audraflow_storage::Storage,
     job_id: &str,
     segments: &[SegmentRow],
@@ -415,7 +409,7 @@ fn render_export(
     }
 }
 
-fn apply_speaker_filter_to_segment(
+pub(crate) fn apply_speaker_filter_to_segment(
     mut segment: Segment,
     speaker_filter: SpeakerExportFilter,
 ) -> Segment {
@@ -425,7 +419,7 @@ fn apply_speaker_filter_to_segment(
     segment
 }
 
-fn render_markdown_segment(
+pub(crate) fn render_markdown_segment(
     storage: &audraflow_storage::Storage,
     segment: &SegmentRow,
     speaker_filter: SpeakerExportFilter,
@@ -459,7 +453,7 @@ fn render_markdown_segment(
     Ok(text)
 }
 
-fn render_plain_segment(
+pub(crate) fn render_plain_segment(
     segment: &SegmentRow,
     speaker_filter: SpeakerExportFilter,
     include_timestamps: bool,
@@ -477,7 +471,7 @@ fn render_plain_segment(
     parts.join(" ")
 }
 
-fn render_segment_text(segment: &SegmentRow, speaker_filter: SpeakerExportFilter) -> String {
+pub(crate) fn render_segment_text(segment: &SegmentRow, speaker_filter: SpeakerExportFilter) -> String {
     if should_render_speaker(segment.speaker_id.as_deref(), speaker_filter) {
         if let Some(speaker) = &segment.speaker_id {
             return format!("{speaker}: {}", segment.text);
@@ -486,7 +480,7 @@ fn render_segment_text(segment: &SegmentRow, speaker_filter: SpeakerExportFilter
     segment.text.clone()
 }
 
-fn format_clock_time(ms: i64) -> String {
+pub(crate) fn format_clock_time(ms: i64) -> String {
     let total_seconds = ms.max(0) / 1000;
     let h = total_seconds / 3600;
     let m = (total_seconds % 3600) / 60;
@@ -494,7 +488,7 @@ fn format_clock_time(ms: i64) -> String {
     format!("{h:02}:{m:02}:{s:02}")
 }
 
-fn format_srt_time(ms: i64) -> String {
+pub(crate) fn format_srt_time(ms: i64) -> String {
     let total_ms = ms.max(0);
     let h = total_ms / 3_600_000;
     let m = (total_ms % 3_600_000) / 60_000;
@@ -503,6 +497,6 @@ fn format_srt_time(ms: i64) -> String {
     format!("{h:02}:{m:02}:{s:02},{milli:03}")
 }
 
-fn format_vtt_time(ms: i64) -> String {
+pub(crate) fn format_vtt_time(ms: i64) -> String {
     format_srt_time(ms).replace(',', ".")
 }

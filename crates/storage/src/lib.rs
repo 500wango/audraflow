@@ -293,6 +293,27 @@ impl Storage {
 
     // ── Segment Operations ──────────────────────────────────────────────────
 
+    /// Count segments for a job (avoids loading all segments).
+    pub fn segment_count(&self, job_id: &str) -> SqliteResult<u32> {
+        self.conn
+            .query_row(
+                "SELECT COUNT(*) FROM segments WHERE job_id = ?1",
+                params![job_id],
+                |row| row.get(0),
+            )
+    }
+
+    /// Get the maximum end_ms for segments in a job (for computing duration).
+    pub fn max_segment_end_ms(&self, job_id: &str) -> SqliteResult<Option<i64>> {
+        self.conn
+            .query_row(
+                "SELECT MAX(end_ms) FROM segments WHERE job_id = ?1",
+                params![job_id],
+                |row| row.get(0),
+            )
+            .optional()
+    }
+
     /// Insert a batch of segments.
     pub fn insert_segments(&self, job_id: &str, segments: &[Segment]) -> SqliteResult<()> {
         let mut stmt = self.conn.prepare(

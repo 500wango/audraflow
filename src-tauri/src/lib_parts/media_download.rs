@@ -1,4 +1,5 @@
-async fn download_remote_media(
+use crate::*;
+pub(crate) async fn download_remote_media(
     app_handle: &tauri::AppHandle,
     client_job_id: &str,
     url: &str,
@@ -165,7 +166,7 @@ async fn download_remote_media(
     trim_media_start_if_needed(app_handle, client_job_id, output_path, skip_start_seconds).await
 }
 
-async fn trim_media_start_if_needed(
+pub(crate) async fn trim_media_start_if_needed(
     app_handle: &tauri::AppHandle,
     client_job_id: &str,
     input_path: PathBuf,
@@ -257,7 +258,7 @@ async fn trim_media_start_if_needed(
     Ok(output_path)
 }
 
-async fn download_platform_media(
+pub(crate) async fn download_platform_media(
     app_handle: &tauri::AppHandle,
     client_job_id: &str,
     url: &str,
@@ -487,7 +488,7 @@ async fn download_platform_media(
     Ok(path)
 }
 
-fn parse_yt_dlp_progress(line: &str) -> Option<f64> {
+pub(crate) fn parse_yt_dlp_progress(line: &str) -> Option<f64> {
     let marker = "[download]";
     let text = line.strip_prefix(marker)?.trim_start();
     let pct_end = text.find('%')?;
@@ -495,7 +496,7 @@ fn parse_yt_dlp_progress(line: &str) -> Option<f64> {
     pct_text.parse::<f64>().ok()
 }
 
-fn normalize_audio_quality(value: &str) -> &'static str {
+pub(crate) fn normalize_audio_quality(value: &str) -> &'static str {
     match value {
         "small" => "small",
         "medium" => "medium",
@@ -504,7 +505,7 @@ fn normalize_audio_quality(value: &str) -> &'static str {
     }
 }
 
-fn normalize_audio_format(value: &str) -> &'static str {
+pub(crate) fn normalize_audio_format(value: &str) -> &'static str {
     match value {
         "mp3" => "mp3",
         "m4a" => "m4a",
@@ -513,7 +514,7 @@ fn normalize_audio_format(value: &str) -> &'static str {
     }
 }
 
-fn yt_dlp_format_selector(audio_quality: &str) -> &'static str {
+pub(crate) fn yt_dlp_format_selector(audio_quality: &str) -> &'static str {
     match audio_quality {
         "small" => "ba[abr<=64]/ba[filesize<20M]/worstaudio/best",
         "medium" | "auto" => "ba[abr<=128]/ba/bestaudio/best",
@@ -522,7 +523,7 @@ fn yt_dlp_format_selector(audio_quality: &str) -> &'static str {
     }
 }
 
-fn yt_dlp_audio_quality_arg(audio_quality: &str) -> &'static str {
+pub(crate) fn yt_dlp_audio_quality_arg(audio_quality: &str) -> &'static str {
     match audio_quality {
         "small" => "64K",
         "medium" | "auto" => "128K",
@@ -531,7 +532,7 @@ fn yt_dlp_audio_quality_arg(audio_quality: &str) -> &'static str {
     }
 }
 
-async fn download_url_media(
+pub(crate) async fn download_url_media(
     app_handle: &tauri::AppHandle,
     client_job_id: &str,
     url: &str,
@@ -569,7 +570,7 @@ async fn download_url_media(
     }
 }
 
-async fn create_url_preview(
+pub(crate) async fn create_url_preview(
     app_handle: &tauri::AppHandle,
     url: &str,
     preview_seconds: f64,
@@ -619,7 +620,7 @@ async fn create_url_preview(
     }
 }
 
-async fn create_platform_preview(
+pub(crate) async fn create_platform_preview(
     app_handle: &tauri::AppHandle,
     cache_dir: &Path,
     url: &str,
@@ -662,7 +663,7 @@ async fn create_platform_preview(
     find_preview_file(cache_dir)
 }
 
-async fn create_direct_preview(
+pub(crate) async fn create_direct_preview(
     app_handle: &tauri::AppHandle,
     cache_dir: &Path,
     url: &str,
@@ -699,7 +700,7 @@ async fn create_direct_preview(
     ensure_non_empty_preview(output_path)
 }
 
-fn find_preview_file(cache_dir: &Path) -> Result<PathBuf, String> {
+pub(crate) fn find_preview_file(cache_dir: &Path) -> Result<PathBuf, String> {
     let mut candidates = Vec::new();
     for entry in
         std::fs::read_dir(cache_dir).map_err(|e| format!("Failed to read preview dir: {e}"))?
@@ -723,14 +724,14 @@ fn find_preview_file(cache_dir: &Path) -> Result<PathBuf, String> {
     ensure_non_empty_preview_with_size(path, size)
 }
 
-fn ensure_non_empty_preview(path: PathBuf) -> Result<PathBuf, String> {
+pub(crate) fn ensure_non_empty_preview(path: PathBuf) -> Result<PathBuf, String> {
     let size = std::fs::metadata(&path)
         .map_err(|e| format!("Failed to inspect preview file: {e}"))?
         .len();
     ensure_non_empty_preview_with_size(path, size)
 }
 
-fn ensure_non_empty_preview_with_size(path: PathBuf, size: u64) -> Result<PathBuf, String> {
+pub(crate) fn ensure_non_empty_preview_with_size(path: PathBuf, size: u64) -> Result<PathBuf, String> {
     if size == 0 {
         let _ = std::fs::remove_file(&path);
         return Err("Preview media was empty".into());

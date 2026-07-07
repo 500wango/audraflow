@@ -1,6 +1,7 @@
+use crate::*;
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct JobLogEvent {
+pub(crate) struct JobLogEvent {
     job_id: String,
     level: &'static str,
     message: String,
@@ -8,7 +9,7 @@ struct JobLogEvent {
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct JobProgressEvent {
+pub(crate) struct JobProgressEvent {
     job_id: String,
     phase: &'static str,
     progress_pct: f64,
@@ -17,7 +18,7 @@ struct JobProgressEvent {
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ModelDownloadProgressEvent {
+pub(crate) struct ModelDownloadProgressEvent {
     id: String,
     downloaded_bytes: u64,
     total_bytes: u64,
@@ -27,7 +28,7 @@ struct ModelDownloadProgressEvent {
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct RuntimeComponentProgressEvent {
+pub(crate) struct RuntimeComponentProgressEvent {
     id: String,
     downloaded_bytes: u64,
     total_bytes: u64,
@@ -37,7 +38,7 @@ struct RuntimeComponentProgressEvent {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct CreateJobFromUrlRequest {
+pub(crate) struct CreateJobFromUrlRequest {
     client_job_id: String,
     url: String,
     audio_quality: Option<String>,
@@ -53,14 +54,14 @@ struct CreateJobFromUrlRequest {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct UrlPreviewRequest {
+pub(crate) struct UrlPreviewRequest {
     url: String,
     preview_seconds: Option<f64>,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct UrlPreviewResponse {
+pub(crate) struct UrlPreviewResponse {
     file_path: String,
     preview_seconds: f64,
     source: &'static str,
@@ -69,7 +70,7 @@ struct UrlPreviewResponse {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct MediaFileInfo {
+pub(crate) struct MediaFileInfo {
     file_path: String,
     file_name: String,
     format: String,
@@ -79,7 +80,7 @@ struct MediaFileInfo {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct JobSummaryDto {
+pub(crate) struct JobSummaryDto {
     job_id: String,
     file_path: String,
     file_name: String,
@@ -95,7 +96,7 @@ struct JobSummaryDto {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct TranscriptSegmentDto {
+pub(crate) struct TranscriptSegmentDto {
     id: String,
     start_ms: i64,
     end_ms: i64,
@@ -111,7 +112,7 @@ struct TranscriptSegmentDto {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct TimestampMarkDto {
+pub(crate) struct TimestampMarkDto {
     id: i64,
     segment_id: String,
     mark_ms: i64,
@@ -121,7 +122,7 @@ struct TimestampMarkDto {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct TranscriptResponse {
+pub(crate) struct TranscriptResponse {
     job_id: String,
     file_path: String,
     media_src_path: String,
@@ -130,7 +131,7 @@ struct TranscriptResponse {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct UpdateSegmentRequest {
+pub(crate) struct UpdateSegmentRequest {
     segment_id: String,
     text: Option<String>,
     speaker: Option<String>,
@@ -138,7 +139,7 @@ struct UpdateSegmentRequest {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct UpdateSpeakerLabelRequest {
+pub(crate) struct UpdateSpeakerLabelRequest {
     job_id: String,
     from_speaker: String,
     to_speaker: String,
@@ -146,13 +147,13 @@ struct UpdateSpeakerLabelRequest {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct AcceptTermCandidateRequest {
+pub(crate) struct AcceptTermCandidateRequest {
     segment_id: String,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct AddGlossaryEntryRequest {
+pub(crate) struct AddGlossaryEntryRequest {
     job_id: Option<String>,
     canonical: String,
     aliases: Vec<String>,
@@ -161,7 +162,7 @@ struct AddGlossaryEntryRequest {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct SaveGlossaryEntryRequest {
+pub(crate) struct SaveGlossaryEntryRequest {
     id: Option<i64>,
     canonical: String,
     aliases: Vec<String>,
@@ -170,7 +171,7 @@ struct SaveGlossaryEntryRequest {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct GlossaryAliasDto {
+pub(crate) struct GlossaryAliasDto {
     id: i64,
     alias: String,
     pinyin: Option<String>,
@@ -178,7 +179,7 @@ struct GlossaryAliasDto {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct GlossaryEntryDto {
+pub(crate) struct GlossaryEntryDto {
     id: i64,
     canonical: String,
     category: Option<String>,
@@ -189,7 +190,7 @@ struct GlossaryEntryDto {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct GlossaryApplyResult {
+pub(crate) struct GlossaryApplyResult {
     entry: GlossaryEntryDto,
     updated_segments: Vec<TranscriptSegmentDto>,
     updated_count: u32,
@@ -197,7 +198,7 @@ struct GlossaryApplyResult {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct AddTimestampMarkRequest {
+pub(crate) struct AddTimestampMarkRequest {
     segment_id: String,
     mark_ms: i64,
     label: Option<String>,
@@ -206,7 +207,7 @@ struct AddTimestampMarkRequest {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct TelemetryEventRequest {
+pub(crate) struct TelemetryEventRequest {
     event_type: String,
     job_id: Option<String>,
     segment_id: Option<String>,
@@ -232,7 +233,7 @@ struct TelemetryEventRequest {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct TelemetryConsentState {
+pub(crate) struct TelemetryConsentState {
     enabled: bool,
     decided: bool,
     updated_at_ms: Option<i64>,
@@ -240,13 +241,13 @@ struct TelemetryConsentState {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct SetTelemetryConsentRequest {
+pub(crate) struct SetTelemetryConsentRequest {
     enabled: bool,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct PrivacyActionResult {
+pub(crate) struct PrivacyActionResult {
     message: String,
     bytes_freed: u64,
     items_affected: u64,
@@ -254,7 +255,7 @@ struct PrivacyActionResult {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct DiagnosticsPreview {
+pub(crate) struct DiagnosticsPreview {
     fields: Vec<String>,
     local_history_bytes: u64,
     telemetry_events_bytes: u64,
@@ -265,7 +266,7 @@ struct DiagnosticsPreview {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct DeviceDiagnosticsDto {
+pub(crate) struct DeviceDiagnosticsDto {
     cpu_cores: u32,
     cuda_available: bool,
     vram_gb: Option<f64>,
@@ -278,7 +279,7 @@ struct DeviceDiagnosticsDto {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct RuntimeHealthDto {
+pub(crate) struct RuntimeHealthDto {
     generated_at_ms: i64,
     blocking_count: u32,
     warning_count: u32,
@@ -287,7 +288,7 @@ struct RuntimeHealthDto {
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct RuntimeDependencyDto {
+pub(crate) struct RuntimeDependencyDto {
     id: String,
     status: String,
     kind: String,
@@ -299,7 +300,7 @@ struct RuntimeDependencyDto {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct RuntimeRepairResultDto {
+pub(crate) struct RuntimeRepairResultDto {
     id: String,
     message: String,
     health: RuntimeHealthDto,
@@ -308,7 +309,7 @@ struct RuntimeRepairResultDto {
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct RuntimeComponentDto {
+pub(crate) struct RuntimeComponentDto {
     id: String,
     status: String,
     kind: String,
@@ -323,7 +324,7 @@ struct RuntimeComponentDto {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct RuntimeComponentActionResultDto {
+pub(crate) struct RuntimeComponentActionResultDto {
     id: String,
     message: String,
     components: Vec<RuntimeComponentDto>,
@@ -332,7 +333,7 @@ struct RuntimeComponentActionResultDto {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ImportLocalModelRequest {
+pub(crate) struct ImportLocalModelRequest {
     file_path: String,
     name: Option<String>,
     version: Option<String>,
@@ -341,7 +342,7 @@ struct ImportLocalModelRequest {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct DownloadModelRequest {
+pub(crate) struct DownloadModelRequest {
     url: String,
     sha256: String,
     size_bytes: u64,
@@ -352,21 +353,21 @@ struct DownloadModelRequest {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct SelectModelRequest {
+pub(crate) struct SelectModelRequest {
     name: String,
     version: String,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct DeleteModelRequest {
+pub(crate) struct DeleteModelRequest {
     name: String,
     version: String,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ModelInfoDto {
+pub(crate) struct ModelInfoDto {
     name: String,
     version: String,
     language: String,
@@ -380,7 +381,7 @@ struct ModelInfoDto {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ModelSettingsDto {
+pub(crate) struct ModelSettingsDto {
     models_dir: String,
     selected_model: Option<ModelInfoDto>,
     installed_models: Vec<ModelInfoDto>,
@@ -388,7 +389,7 @@ struct ModelSettingsDto {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ModelActionResult {
+pub(crate) struct ModelActionResult {
     message: String,
     bytes_freed: u64,
     items_affected: u64,
@@ -397,7 +398,7 @@ struct ModelActionResult {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ModelCatalogEntryDto {
+pub(crate) struct ModelCatalogEntryDto {
     name: String,
     version: String,
     language: String,
@@ -412,7 +413,7 @@ struct ModelCatalogEntryDto {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct LocalTelemetryRecord {
+pub(crate) struct LocalTelemetryRecord {
     event_type: String,
     timestamp_ms: i64,
     #[serde(skip_serializing_if = "Option::is_none")]

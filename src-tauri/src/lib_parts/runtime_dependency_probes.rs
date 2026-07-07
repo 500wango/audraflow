@@ -1,4 +1,5 @@
-fn probe_default_whisper_model(app_handle: &tauri::AppHandle) -> RuntimeDependencyDto {
+use crate::*;
+pub(crate) fn probe_default_whisper_model(app_handle: &tauri::AppHandle) -> RuntimeDependencyDto {
     let id = "defaultWhisperModel";
     let repairable = runtime_dependency_repairable(id);
     let manager = match model_manager(app_handle) {
@@ -62,7 +63,7 @@ fn probe_default_whisper_model(app_handle: &tauri::AppHandle) -> RuntimeDependen
 }
 
 #[cfg(windows)]
-fn probe_vc_redist() -> RuntimeDependencyDto {
+pub(crate) fn probe_vc_redist() -> RuntimeDependencyDto {
     let id = "vcRedist";
     let missing = vc_redist_missing_files();
     if missing.is_empty() {
@@ -88,7 +89,7 @@ fn probe_vc_redist() -> RuntimeDependencyDto {
     }
 }
 
-async fn probe_runtime_command(
+pub(crate) async fn probe_runtime_command(
     id: &str,
     kind: &str,
     program: PathBuf,
@@ -148,7 +149,7 @@ async fn probe_runtime_command(
     }
 }
 
-async fn probe_funasr_cli(app_handle: &tauri::AppHandle) -> RuntimeDependencyDto {
+pub(crate) async fn probe_funasr_cli(app_handle: &tauri::AppHandle) -> RuntimeDependencyDto {
     let id = "funasrCli";
     let program = funasr_cli_command_for_app(app_handle);
     let display_path = command_display_path(&program);
@@ -205,7 +206,7 @@ async fn probe_funasr_cli(app_handle: &tauri::AppHandle) -> RuntimeDependencyDto
     }
 }
 
-async fn funasr_cli_probe_succeeds(program: &Path) -> bool {
+pub(crate) async fn funasr_cli_probe_succeeds(program: &Path) -> bool {
     let Ok(result) = tokio::time::timeout(
         Duration::from_secs(5),
         tokio::process::Command::new(program).arg("--help").output(),
@@ -220,7 +221,7 @@ async fn funasr_cli_probe_succeeds(program: &Path) -> bool {
     output.status.success() || output_looks_like_funasr_usage(&output)
 }
 
-fn output_looks_like_funasr_usage(output: &std::process::Output) -> bool {
+pub(crate) fn output_looks_like_funasr_usage(output: &std::process::Output) -> bool {
     let text = format!(
         "{}\n{}",
         String::from_utf8_lossy(&output.stdout),
@@ -229,14 +230,14 @@ fn output_looks_like_funasr_usage(output: &std::process::Output) -> bool {
     text_looks_like_funasr_usage(&text)
 }
 
-fn text_looks_like_funasr_usage(text: &str) -> bool {
+pub(crate) fn text_looks_like_funasr_usage(text: &str) -> bool {
     let normalized = text.to_ascii_lowercase();
     normalized.contains("llama-funasr-cli")
         && normalized.contains("--enc")
         && normalized.contains("-a audio")
 }
 
-async fn probe_sensevoice_python() -> RuntimeDependencyDto {
+pub(crate) async fn probe_sensevoice_python() -> RuntimeDependencyDto {
     let Some(invocation) = resolve_python_invocation() else {
         return RuntimeDependencyDto {
             id: "sensevoicePython".into(),
@@ -266,7 +267,7 @@ async fn probe_sensevoice_python() -> RuntimeDependencyDto {
     .await
 }
 
-async fn probe_demucs() -> RuntimeDependencyDto {
+pub(crate) async fn probe_demucs() -> RuntimeDependencyDto {
     let Some(invocation) = resolve_demucs_invocation_for_health() else {
         return RuntimeDependencyDto {
             id: "demucs".into(),
@@ -294,7 +295,7 @@ async fn probe_demucs() -> RuntimeDependencyDto {
     .await
 }
 
-fn probe_funasr_models(app_handle: &tauri::AppHandle) -> RuntimeDependencyDto {
+pub(crate) fn probe_funasr_models(app_handle: &tauri::AppHandle) -> RuntimeDependencyDto {
     match resolve_funasr_model_paths(app_handle) {
         Ok(paths) => RuntimeDependencyDto {
             id: "funasrModels".into(),
@@ -328,7 +329,7 @@ fn probe_funasr_models(app_handle: &tauri::AppHandle) -> RuntimeDependencyDto {
     }
 }
 
-async fn repair_runtime_dependency(
+pub(crate) async fn repair_runtime_dependency(
     app_handle: tauri::AppHandle,
     id: &str,
 ) -> Result<RuntimeRepairResultDto, String> {
@@ -399,7 +400,7 @@ async fn repair_runtime_dependency(
     })
 }
 
-async fn repair_vc_redist_if_missing(app_handle: &tauri::AppHandle) -> Result<Option<String>, String> {
+pub(crate) async fn repair_vc_redist_if_missing(app_handle: &tauri::AppHandle) -> Result<Option<String>, String> {
     if vc_redist_missing_files().is_empty() {
         Ok(None)
     } else {
@@ -409,7 +410,7 @@ async fn repair_vc_redist_if_missing(app_handle: &tauri::AppHandle) -> Result<Op
     }
 }
 
-fn ensure_repair_succeeded(health: &RuntimeHealthDto, id: &str) -> Result<(), String> {
+pub(crate) fn ensure_repair_succeeded(health: &RuntimeHealthDto, id: &str) -> Result<(), String> {
     let targets = repair_validation_targets(id);
     for target in targets {
         let Some(item) = health.items.iter().find(|item| item.id == target) else {
@@ -429,7 +430,7 @@ fn ensure_repair_succeeded(health: &RuntimeHealthDto, id: &str) -> Result<(), St
     Ok(())
 }
 
-fn repair_validation_targets(id: &str) -> Vec<&'static str> {
+pub(crate) fn repair_validation_targets(id: &str) -> Vec<&'static str> {
     match id {
         "ffmpeg" | "ffprobe" => vec!["ffmpeg", "ffprobe"],
         "vcRedist" => vec!["vcRedist"],
@@ -443,7 +444,7 @@ fn repair_validation_targets(id: &str) -> Vec<&'static str> {
     }
 }
 
-fn runtime_dependency_label_for_error(id: &str) -> &str {
+pub(crate) fn runtime_dependency_label_for_error(id: &str) -> &str {
     match id {
         "defaultWhisperModel" => "Whisper model",
         "vcRedist" => "Microsoft VC++ Runtime",
@@ -459,7 +460,7 @@ fn runtime_dependency_label_for_error(id: &str) -> &str {
     }
 }
 
-async fn repair_default_whisper_model(app_handle: &tauri::AppHandle) -> Result<String, String> {
+pub(crate) async fn repair_default_whisper_model(app_handle: &tauri::AppHandle) -> Result<String, String> {
     let manager = model_manager(app_handle)?;
     if let Some(installed) = ensure_bundled_default_model(app_handle, &manager)? {
         match manager.selected_model() {
@@ -527,7 +528,7 @@ async fn repair_default_whisper_model(app_handle: &tauri::AppHandle) -> Result<S
     Ok("Default Whisper model was downloaded and selected.".into())
 }
 
-fn looks_like_html(bytes: &[u8]) -> bool {
+pub(crate) fn looks_like_html(bytes: &[u8]) -> bool {
     let sample_len = bytes.len().min(512);
     let sample = String::from_utf8_lossy(&bytes[..sample_len])
         .trim_start()
@@ -535,7 +536,7 @@ fn looks_like_html(bytes: &[u8]) -> bool {
     sample.starts_with("<!doctype html") || sample.starts_with("<html")
 }
 
-fn mark_executable(path: &Path) -> Result<(), String> {
+pub(crate) fn mark_executable(path: &Path) -> Result<(), String> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -553,7 +554,7 @@ fn mark_executable(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-async fn repair_python_packages(
+pub(crate) async fn repair_python_packages(
     label: &str,
     packages: &[&str],
     timeout: Duration,
@@ -584,7 +585,7 @@ async fn repair_python_packages(
     ))
 }
 
-async fn ensure_managed_python_venv(label: &str) -> Result<RuntimeInvocation, String> {
+pub(crate) async fn ensure_managed_python_venv(label: &str) -> Result<RuntimeInvocation, String> {
     if let Some(invocation) = find_managed_python_invocation() {
         return Ok(invocation);
     }

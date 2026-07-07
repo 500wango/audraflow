@@ -1,5 +1,6 @@
+use crate::*;
 #[derive(Clone)]
-enum RuntimeComponentSourceKind {
+pub(crate) enum RuntimeComponentSourceKind {
     SingleFile { file_name: &'static str },
     ArchiveByFileName,
     Installer {
@@ -8,17 +9,17 @@ enum RuntimeComponentSourceKind {
     },
 }
 
-const YT_DLP_WINDOWS_REQUIRED_FILES: &[&str] = &["yt-dlp.exe"];
-const YT_DLP_UNIX_REQUIRED_FILES: &[&str] = &["yt-dlp"];
-const FUNASR_WINDOWS_REQUIRED_FILES: &[&str] = &["llama-funasr-cli.exe"];
-const FUNASR_UNIX_REQUIRED_FILES: &[&str] = &["llama-funasr-cli"];
-const FUNASR_LLAMA_CPP_RELEASE_TAG: &str = "runtime-llamacpp-v0.1.4";
-const VC_REDIST_X64_URL: &str = "https://aka.ms/vc14/vc_redist.x64.exe";
-const VC_REDIST_X64_REQUIRED_FILES: &[&str] =
+pub(crate) const YT_DLP_WINDOWS_REQUIRED_FILES: &[&str] = &["yt-dlp.exe"];
+pub(crate) const YT_DLP_UNIX_REQUIRED_FILES: &[&str] = &["yt-dlp"];
+pub(crate) const FUNASR_WINDOWS_REQUIRED_FILES: &[&str] = &["llama-funasr-cli.exe"];
+pub(crate) const FUNASR_UNIX_REQUIRED_FILES: &[&str] = &["llama-funasr-cli"];
+pub(crate) const FUNASR_LLAMA_CPP_RELEASE_TAG: &str = "runtime-llamacpp-v0.1.4";
+pub(crate) const VC_REDIST_X64_URL: &str = "https://aka.ms/vc14/vc_redist.x64.exe";
+pub(crate) const VC_REDIST_X64_REQUIRED_FILES: &[&str] =
     &["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"];
 
 #[derive(Clone)]
-struct RuntimeComponentSpec {
+pub(crate) struct RuntimeComponentSpec {
     id: &'static str,
     kind: &'static str,
     env_url: &'static str,
@@ -29,7 +30,7 @@ struct RuntimeComponentSpec {
     source_kind: RuntimeComponentSourceKind,
 }
 
-fn runtime_component_specs() -> Vec<RuntimeComponentSpec> {
+pub(crate) fn runtime_component_specs() -> Vec<RuntimeComponentSpec> {
     let mut specs = Vec::new();
 
     if cfg!(windows) {
@@ -113,12 +114,12 @@ fn runtime_component_specs() -> Vec<RuntimeComponentSpec> {
     specs
 }
 
-struct RuntimeComponentDownload {
+pub(crate) struct RuntimeComponentDownload {
     url: String,
     size_bytes: u64,
 }
 
-fn yt_dlp_component_required_files() -> &'static [&'static str] {
+pub(crate) fn yt_dlp_component_required_files() -> &'static [&'static str] {
     if cfg!(windows) {
         YT_DLP_WINDOWS_REQUIRED_FILES
     } else {
@@ -126,7 +127,7 @@ fn yt_dlp_component_required_files() -> &'static [&'static str] {
     }
 }
 
-fn funasr_component_required_files() -> &'static [&'static str] {
+pub(crate) fn funasr_component_required_files() -> &'static [&'static str] {
     if cfg!(windows) {
         FUNASR_WINDOWS_REQUIRED_FILES
     } else {
@@ -134,7 +135,7 @@ fn funasr_component_required_files() -> &'static [&'static str] {
     }
 }
 
-fn funasr_official_download() -> Option<RuntimeComponentDownload> {
+pub(crate) fn funasr_official_download() -> Option<RuntimeComponentDownload> {
     let (asset_name, size_bytes) = funasr_official_asset()?;
     Some(RuntimeComponentDownload {
         url: format!(
@@ -144,8 +145,8 @@ fn funasr_official_download() -> Option<RuntimeComponentDownload> {
     })
 }
 
-fn funasr_official_asset() -> Option<(&'static str, u64)> {
-    if cfg!(all(windows, target_arch = "x86_64")) {
+pub(crate) fn funasr_official_asset() -> Option<(&'static str, u64)> {
+    let asset = if cfg!(all(windows, target_arch = "x86_64")) {
         Some(("funasr-llamacpp-windows-x64.zip", 4_663_344))
     } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
         Some(("funasr-llamacpp-linux-x64.tar.gz", 7_610_705))
@@ -155,10 +156,22 @@ fn funasr_official_asset() -> Option<(&'static str, u64)> {
         Some(("funasr-llamacpp-macos-arm64.tar.gz", 6_816_662))
     } else {
         None
+    };
+
+    // Allow env var override for size when releases change
+    if let (Some((name, _default_size)), Ok(env_size)) = (
+        asset,
+        std::env::var("AUDRAFLOW_FUNASR_SIZE_BYTES"),
+    ) {
+        if let Ok(parsed) = env_size.trim().parse::<u64>() {
+            return Some((name, parsed));
+        }
     }
+
+    asset
 }
 
-fn github_release_asset_url(asset_name: &str) -> String {
+pub(crate) fn github_release_asset_url(asset_name: &str) -> String {
     let tag = std::env::var("AUDRAFLOW_COMPONENT_RELEASE_TAG")
         .ok()
         .map(|value| value.trim().to_string())
@@ -172,7 +185,7 @@ fn github_release_asset_url(asset_name: &str) -> String {
     format!("{base}/{asset_name}")
 }
 
-fn runtime_component_download_url(spec: &RuntimeComponentSpec) -> Option<String> {
+pub(crate) fn runtime_component_download_url(spec: &RuntimeComponentSpec) -> Option<String> {
     std::env::var(spec.env_url)
         .ok()
         .map(|value| value.trim().to_string())
@@ -180,7 +193,7 @@ fn runtime_component_download_url(spec: &RuntimeComponentSpec) -> Option<String>
         .or_else(|| spec.default_url.clone())
 }
 
-fn runtime_app_data_dir() -> PathBuf {
+pub(crate) fn runtime_app_data_dir() -> PathBuf {
     if let Some(path) = std::env::var_os("AUDRAFLOW_APP_DATA_DIR")
         .map(PathBuf::from)
         .filter(|path| !path.as_os_str().is_empty())
@@ -208,19 +221,19 @@ fn runtime_app_data_dir() -> PathBuf {
     }
 }
 
-fn runtime_components_root() -> PathBuf {
+pub(crate) fn runtime_components_root() -> PathBuf {
     runtime_app_data_dir().join("runtime").join("components")
 }
 
-fn runtime_component_dir(component_id: &str) -> PathBuf {
+pub(crate) fn runtime_component_dir(component_id: &str) -> PathBuf {
     runtime_components_root().join(component_id)
 }
 
-fn runtime_component_bin_dir(component_id: &str) -> PathBuf {
+pub(crate) fn runtime_component_bin_dir(component_id: &str) -> PathBuf {
     runtime_component_dir(component_id).join("bin")
 }
 
-fn runtime_components_root_for_app(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn runtime_components_root_for_app(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(app_handle
         .path()
         .app_data_dir()
@@ -229,19 +242,19 @@ fn runtime_components_root_for_app(app_handle: &tauri::AppHandle) -> Result<Path
         .join("components"))
 }
 
-fn runtime_component_dir_for_app(
+pub(crate) fn runtime_component_dir_for_app(
     app_handle: &tauri::AppHandle,
     component_id: &str,
 ) -> Result<PathBuf, String> {
     Ok(runtime_components_root_for_app(app_handle)?.join(component_id))
 }
 
-fn find_runtime_component_tool(component_id: &str, file_name: &str) -> Option<PathBuf> {
+pub(crate) fn find_runtime_component_tool(component_id: &str, file_name: &str) -> Option<PathBuf> {
     let path = runtime_component_bin_dir(component_id).join(file_name);
     path.is_file().then_some(path)
 }
 
-fn find_runtime_component_tool_for_app(
+pub(crate) fn find_runtime_component_tool_for_app(
     app_handle: &tauri::AppHandle,
     component_id: &str,
     file_name: &str,
@@ -251,14 +264,14 @@ fn find_runtime_component_tool_for_app(
     path.is_file().then_some(path)
 }
 
-fn find_runtime_component_spec(id: &str) -> Option<RuntimeComponentSpec> {
+pub(crate) fn find_runtime_component_spec(id: &str) -> Option<RuntimeComponentSpec> {
     let normalized = normalize_runtime_component_id(id)?;
     runtime_component_specs()
         .into_iter()
         .find(|spec| spec.id == normalized)
 }
 
-fn normalize_runtime_component_id(id: &str) -> Option<&'static str> {
+pub(crate) fn normalize_runtime_component_id(id: &str) -> Option<&'static str> {
     match id.trim() {
         "whisper" | "whisperCli" | "whisper-cli" => Some("whisper"),
         "ffmpeg" | "ffprobe" => Some("ffmpeg"),
@@ -273,7 +286,7 @@ fn normalize_runtime_component_id(id: &str) -> Option<&'static str> {
     }
 }
 
-fn runtime_component_status(
+pub(crate) fn runtime_component_status(
     app_handle: &tauri::AppHandle,
     spec: &RuntimeComponentSpec,
 ) -> RuntimeComponentDto {
@@ -318,7 +331,7 @@ fn runtime_component_status(
     }
 }
 
-fn vc_redist_component_status(spec: &RuntimeComponentSpec) -> RuntimeComponentDto {
+pub(crate) fn vc_redist_component_status(spec: &RuntimeComponentSpec) -> RuntimeComponentDto {
     let missing = vc_redist_missing_files();
     let download_url = runtime_component_download_url(spec);
     let install_dir = vc_redist_install_dir()
@@ -350,7 +363,7 @@ fn vc_redist_component_status(spec: &RuntimeComponentSpec) -> RuntimeComponentDt
     }
 }
 
-fn vc_redist_install_dir() -> Option<PathBuf> {
+pub(crate) fn vc_redist_install_dir() -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     {
         return windows_system32_dir();
@@ -362,7 +375,7 @@ fn vc_redist_install_dir() -> Option<PathBuf> {
     }
 }
 
-fn vc_redist_missing_files() -> Vec<&'static str> {
+pub(crate) fn vc_redist_missing_files() -> Vec<&'static str> {
     #[cfg(target_os = "windows")]
     {
         let Some(system32) = windows_system32_dir() else {
@@ -382,7 +395,7 @@ fn vc_redist_missing_files() -> Vec<&'static str> {
 }
 
 #[cfg(target_os = "windows")]
-fn windows_system32_dir() -> Option<PathBuf> {
+pub(crate) fn windows_system32_dir() -> Option<PathBuf> {
     std::env::var_os("SystemRoot")
         .or_else(|| std::env::var_os("WINDIR"))
         .map(PathBuf::from)
@@ -390,14 +403,14 @@ fn windows_system32_dir() -> Option<PathBuf> {
         .map(|path| path.join("System32"))
 }
 
-fn runtime_components(app_handle: &tauri::AppHandle) -> Vec<RuntimeComponentDto> {
+pub(crate) fn runtime_components(app_handle: &tauri::AppHandle) -> Vec<RuntimeComponentDto> {
     runtime_component_specs()
         .iter()
         .map(|spec| runtime_component_status(app_handle, spec))
         .collect()
 }
 
-fn emit_runtime_component_progress(
+pub(crate) fn emit_runtime_component_progress(
     app_handle: &tauri::AppHandle,
     id: &str,
     downloaded_bytes: u64,
@@ -421,7 +434,7 @@ fn emit_runtime_component_progress(
     );
 }
 
-async fn install_runtime_component_by_id(
+pub(crate) async fn install_runtime_component_by_id(
     app_handle: &tauri::AppHandle,
     id: &str,
 ) -> Result<String, String> {
@@ -430,7 +443,7 @@ async fn install_runtime_component_by_id(
     install_runtime_component(app_handle, &spec).await
 }
 
-async fn install_runtime_component(
+pub(crate) async fn install_runtime_component(
     app_handle: &tauri::AppHandle,
     spec: &RuntimeComponentSpec,
 ) -> Result<String, String> {
@@ -499,7 +512,7 @@ async fn install_runtime_component(
     ))
 }
 
-async fn install_runtime_component_installer(
+pub(crate) async fn install_runtime_component_installer(
     app_handle: &tauri::AppHandle,
     spec: &RuntimeComponentSpec,
     url: &str,
@@ -574,12 +587,12 @@ async fn install_runtime_component_installer(
     Ok(format!("{} runtime component installed.", spec.id))
 }
 
-fn installer_exit_succeeded(output: &std::process::Output) -> bool {
+pub(crate) fn installer_exit_succeeded(output: &std::process::Output) -> bool {
     matches!(output.status.code(), Some(0 | 3010 | 1638))
 }
 
 #[cfg(target_os = "windows")]
-async fn run_component_installer(
+pub(crate) async fn run_component_installer(
     path: &Path,
     args: &[&str],
     timeout: Duration,
@@ -607,7 +620,7 @@ async fn run_component_installer(
 }
 
 #[cfg(not(target_os = "windows"))]
-async fn run_component_installer(
+pub(crate) async fn run_component_installer(
     path: &Path,
     args: &[&str],
     timeout: Duration,
@@ -620,11 +633,11 @@ async fn run_component_installer(
 }
 
 #[cfg(target_os = "windows")]
-fn powershell_single_quote(value: &str) -> String {
+pub(crate) fn powershell_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
 
-async fn delete_runtime_component_by_id(
+pub(crate) async fn delete_runtime_component_by_id(
     app_handle: &tauri::AppHandle,
     id: &str,
 ) -> Result<String, String> {
@@ -649,7 +662,7 @@ async fn delete_runtime_component_by_id(
     ))
 }
 
-async fn download_url_to_path_with_progress(
+pub(crate) async fn download_url_to_path_with_progress(
     app_handle: &tauri::AppHandle,
     id: &str,
     url: &str,
@@ -723,7 +736,7 @@ async fn download_url_to_path_with_progress(
         .map_err(|e| format!("Failed to save runtime component download: {e}"))
 }
 
-fn file_looks_like_html(path: &Path) -> Result<bool, String> {
+pub(crate) fn file_looks_like_html(path: &Path) -> Result<bool, String> {
     use std::io::Read;
 
     let mut file = std::fs::File::open(path)
@@ -735,7 +748,7 @@ fn file_looks_like_html(path: &Path) -> Result<bool, String> {
     Ok(looks_like_html(&bytes[..len]))
 }
 
-fn install_component_payload(
+pub(crate) fn install_component_payload(
     spec: &RuntimeComponentSpec,
     payload_path: &Path,
     staging_bin_dir: &Path,
@@ -756,7 +769,7 @@ fn install_component_payload(
     }
 }
 
-fn extract_required_files_from_archive(
+pub(crate) fn extract_required_files_from_archive(
     archive_path: &Path,
     destination_dir: &Path,
     required_files: &[&str],
@@ -767,7 +780,7 @@ fn extract_required_files_from_archive(
     extract_required_files_from_tar_gz(archive_path, destination_dir, required_files)
 }
 
-fn file_has_zip_header(path: &Path) -> Result<bool, String> {
+pub(crate) fn file_has_zip_header(path: &Path) -> Result<bool, String> {
     use std::io::Read;
 
     let mut file = std::fs::File::open(path)
@@ -779,7 +792,7 @@ fn file_has_zip_header(path: &Path) -> Result<bool, String> {
     Ok(len >= 4 && bytes == [b'P', b'K', 3, 4])
 }
 
-fn extract_required_files_from_zip(
+pub(crate) fn extract_required_files_from_zip(
     archive_path: &Path,
     destination_dir: &Path,
     required_files: &[&str],
@@ -815,7 +828,7 @@ fn extract_required_files_from_zip(
     Ok(())
 }
 
-fn extract_required_files_from_tar_gz(
+pub(crate) fn extract_required_files_from_tar_gz(
     archive_path: &Path,
     destination_dir: &Path,
     required_files: &[&str],
@@ -853,18 +866,18 @@ fn extract_required_files_from_tar_gz(
     Ok(())
 }
 
-fn zip_entry_basename(name: &str) -> Option<String> {
+pub(crate) fn zip_entry_basename(name: &str) -> Option<String> {
     archive_entry_basename(name)
 }
 
-fn archive_entry_basename(name: &str) -> Option<String> {
+pub(crate) fn archive_entry_basename(name: &str) -> Option<String> {
     name.replace('\\', "/")
         .rsplit('/')
         .find(|part| !part.is_empty())
         .map(str::to_string)
 }
 
-fn verify_component_files(spec: &RuntimeComponentSpec, bin_dir: &Path) -> Result<(), String> {
+pub(crate) fn verify_component_files(spec: &RuntimeComponentSpec, bin_dir: &Path) -> Result<(), String> {
     let missing = spec
         .required_files
         .iter()

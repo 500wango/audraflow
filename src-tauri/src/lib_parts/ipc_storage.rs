@@ -1,4 +1,5 @@
-fn emit_job_log(
+use crate::*;
+pub(crate) fn emit_job_log(
     app_handle: &tauri::AppHandle,
     job_id: &str,
     level: &'static str,
@@ -16,7 +17,7 @@ fn emit_job_log(
     );
 }
 
-fn emit_job_progress(
+pub(crate) fn emit_job_progress(
     app_handle: &tauri::AppHandle,
     job_id: &str,
     phase: &'static str,
@@ -34,7 +35,7 @@ fn emit_job_progress(
     );
 }
 
-fn emit_model_download_progress(
+pub(crate) fn emit_model_download_progress(
     app_handle: &tauri::AppHandle,
     id: &str,
     downloaded_bytes: u64,
@@ -58,26 +59,38 @@ fn emit_model_download_progress(
     );
 }
 
-fn expect_job_status(message: IpcMessage) -> Result<JobStatus, String> {
+pub(crate) fn expect_job_status(message: IpcMessage) -> Result<JobStatus, String> {
     match message {
         IpcMessage::JobStatus(status) => Ok(status),
+        IpcMessage::ErrorReport(report) => Err(format!(
+            "{} (code {}){}",
+            report.error_message,
+            report.error_code,
+            report
+                .fallback_action
+                .map(|a| format!(" — {a}"))
+                .unwrap_or_default()
+        )),
         other => Err(format!("Unexpected orchestrator response: {other:?}")),
     }
 }
 
-fn storage_db_path() -> Result<PathBuf, String> {
+pub(crate) fn storage_db_path() -> Result<PathBuf, String> {
+    // Migrate from legacy path (AudraFlow) to canonical path (com.audraflow.app) on Windows
+    migrate_from_legacy_db_path()?;
     let dir = app_data_dir();
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir.join("audraflow.db"))
 }
 
-fn app_data_dir() -> PathBuf {
+pub(crate) fn app_data_dir() -> PathBuf {
+    // Note: Keep in sync with runtime_app_data_dir() in runtime_components.rs
     #[cfg(target_os = "windows")]
     {
         return std::env::var_os("APPDATA")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("AudraFlow");
+            .join("com.audraflow.app");
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -92,7 +105,35 @@ fn app_data_dir() -> PathBuf {
     }
 }
 
-fn segment_to_dto(
+pub(crate) fn migrate_from_legacy_db_path() -> Result<(), String> {
+    let new_dir = app_data_dir();
+    let new_path = new_dir.join("audraflow.db");
+
+    #[cfg(target_os = "windows")]
+    let legacy_dir = std::env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("AudraFlow");
+
+    #[cfg(not(target_os = "windows"))]
+    let legacy_dir: PathBuf = app_data_dir(); // Same on Linux, no migration needed
+
+    let legacy_path = legacy_dir.join("audraflow.db");
+
+    // Only migrate if the legacy DB exists and the new location doesn't
+    if legacy_path.exists() && !new_path.exists() {
+        if let Some(parent) = new_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("Failed to create data directory: {e}"))?;
+        }
+        std::fs::rename(&legacy_path, &new_path)
+            .map_err(|e| format!("Failed to migrate database: {e}"))?;
+        log::info!("Migrated database from {:?} to {:?}", legacy_path, new_path);
+    }
+
+    Ok(())
+}
+
+pub(crate) fn segment_to_dto(
     storage: &audraflow_storage::Storage,
     segment: SegmentRow,
 ) -> Result<TranscriptSegmentDto, String> {
@@ -138,7 +179,7 @@ fn segment_to_dto(
     })
 }
 
-fn normalize_fts_query(query: &str) -> String {
+pub(crate) fn normalize_fts_query(query: &str) -> String {
     let escaped = query.trim().replace('"', "\"\"");
     if escaped.is_empty() {
         return String::new();
@@ -146,7 +187,7 @@ fn normalize_fts_query(query: &str) -> String {
     format!("\"{escaped}\"")
 }
 
-fn filter_segments_by_text(segments: &[SegmentRow], query: &str) -> Vec<SegmentRow> {
+pub(crate) fn filter_segments_by_text(segments: &[SegmentRow], query: &str) -> Vec<SegmentRow> {
     let needle = query.trim().to_lowercase();
     if needle.is_empty() {
         return Vec::new();
@@ -168,7 +209,7 @@ fn filter_segments_by_text(segments: &[SegmentRow], query: &str) -> Vec<SegmentR
         .collect()
 }
 
-fn search_transcript_segments(
+pub(crate) fn search_transcript_segments(
     storage: &audraflow_storage::Storage,
     job_id: &str,
     query: &str,
@@ -208,7 +249,7 @@ fn search_transcript_segments(
         .collect()
 }
 
-fn glossary_entry_to_dto(entry: audraflow_storage::GlossaryEntryRow) -> GlossaryEntryDto {
+pub(crate) fn glossary_entry_to_dto(entry: audraflow_storage::GlossaryEntryRow) -> GlossaryEntryDto {
     GlossaryEntryDto {
         id: entry.id,
         canonical: entry.canonical,
@@ -227,7 +268,7 @@ fn glossary_entry_to_dto(entry: audraflow_storage::GlossaryEntryRow) -> Glossary
     }
 }
 
-fn glossary_entry_to_processor(
+pub(crate) fn glossary_entry_to_processor(
     entry: &audraflow_storage::GlossaryEntryRow,
 ) -> audraflow_post_processor::GlossaryEntry {
     audraflow_post_processor::GlossaryEntry {
@@ -247,7 +288,7 @@ fn glossary_entry_to_processor(
     }
 }
 
-fn sanitize_glossary_aliases(canonical: &str, aliases: Vec<String>) -> Vec<String> {
+pub(crate) fn sanitize_glossary_aliases(canonical: &str, aliases: Vec<String>) -> Vec<String> {
     let mut cleaned = Vec::new();
     for alias in aliases {
         let alias = alias.trim();
@@ -259,7 +300,7 @@ fn sanitize_glossary_aliases(canonical: &str, aliases: Vec<String>) -> Vec<Strin
     cleaned
 }
 
-fn apply_glossary_entry_to_job(
+pub(crate) fn apply_glossary_entry_to_job(
     storage: &audraflow_storage::Storage,
     job_id: &str,
     entry: &audraflow_storage::GlossaryEntryRow,
@@ -303,7 +344,7 @@ fn apply_glossary_entry_to_job(
 }
 
 #[cfg(target_os = "windows")]
-fn send_orchestrator_message(message: IpcMessage) -> Result<IpcMessage, String> {
+pub(crate) async fn send_orchestrator_message(message: IpcMessage) -> Result<IpcMessage, String> {
     use std::io::{Read, Write};
 
     let envelope = IpcEnvelope::new(message);
@@ -319,7 +360,7 @@ fn send_orchestrator_message(message: IpcMessage) -> Result<IpcMessage, String> 
             Ok(pipe) => break pipe,
             Err(e) if Instant::now() < deadline => {
                 log::debug!("Waiting for orchestrator pipe: {}", e);
-                std::thread::sleep(Duration::from_millis(200));
+                tokio::time::sleep(Duration::from_millis(200)).await;
             }
             Err(e) => return Err(format!("Orchestrator is not available: {e}")),
         }
@@ -338,7 +379,7 @@ fn send_orchestrator_message(message: IpcMessage) -> Result<IpcMessage, String> 
 }
 
 #[cfg(not(target_os = "windows"))]
-fn send_orchestrator_message(message: IpcMessage) -> Result<IpcMessage, String> {
+pub(crate) async fn send_orchestrator_message(message: IpcMessage) -> Result<IpcMessage, String> {
     use std::io::{Read, Write};
     use std::os::unix::net::UnixStream;
 
@@ -355,7 +396,7 @@ fn send_orchestrator_message(message: IpcMessage) -> Result<IpcMessage, String> 
                     socket_path.display(),
                     e
                 );
-                std::thread::sleep(Duration::from_millis(200));
+                tokio::time::sleep(Duration::from_millis(200)).await;
             }
             Err(e) => {
                 return Err(format!(
@@ -371,12 +412,13 @@ fn send_orchestrator_message(message: IpcMessage) -> Result<IpcMessage, String> 
         .shutdown(std::net::Shutdown::Write)
         .map_err(|e| e.to_string())?;
 
-    let mut buf = Vec::new();
-    stream.read_to_end(&mut buf).map_err(|e| e.to_string())?;
-    if buf.is_empty() {
+    // Bounded read (max 64KB) to prevent memory exhaustion (B3)
+    let mut buf = vec![0u8; 65536];
+    let n = stream.read(&mut buf).map_err(|e| e.to_string())?;
+    if n == 0 {
         return Err("Orchestrator closed the connection without a response".into());
     }
 
-    let reply: IpcEnvelope = serde_json::from_slice(&buf).map_err(|e| e.to_string())?;
+    let reply: IpcEnvelope = serde_json::from_slice(&buf[..n]).map_err(|e| e.to_string())?;
     Ok(reply.payload)
 }

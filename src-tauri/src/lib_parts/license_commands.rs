@@ -1,10 +1,11 @@
+use crate::*;
 /// Estimate processing time using the adaptive scheduler.
 /// Called when user toggles "极致准确" to show estimated duration change.
 ///
 /// Input: audio duration (seconds), extreme accuracy flag.
 /// Output: scheduler plan with estimated seconds.
 #[tauri::command]
-async fn cmd_estimate_job(
+pub(crate) async fn cmd_estimate_job(
     audio_duration_s: f64,
     extreme_accuracy: bool,
 ) -> Result<JobPlan, String> {
@@ -50,7 +51,7 @@ async fn cmd_estimate_job(
 
 /// Activate a license key.
 #[tauri::command]
-async fn cmd_activate_license(
+pub(crate) async fn cmd_activate_license(
     app_handle: tauri::AppHandle,
     license_key: String,
 ) -> Result<String, String> {
@@ -67,7 +68,7 @@ async fn cmd_activate_license(
 
 /// Get current license state (trial days remaining, activation status).
 #[tauri::command]
-async fn cmd_get_license_state(app_handle: tauri::AppHandle) -> Result<serde_json::Value, String> {
+pub(crate) async fn cmd_get_license_state(app_handle: tauri::AppHandle) -> Result<serde_json::Value, String> {
     use LicenseState::*;
 
     let app_dir = app_handle

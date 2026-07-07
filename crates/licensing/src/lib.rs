@@ -12,6 +12,9 @@
 //! Supports offline activation for air-gapped machines.
 
 use chrono::{DateTime, Utc};
+use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
+use ring::digest as ring_digest;
+use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
@@ -68,7 +71,7 @@ impl LicenseManager {
         } else {
             // First launch: start trial
             let now = Utc::now();
-            let expires = now + chrono::Duration::days(30);
+            let expires = now + chrono::TimeDelta::days(30);
             let state = LicenseState::Trial {
                 started_at: now.to_rfc3339(),
                 expires_at: expires.to_rfc3339(),
@@ -136,7 +139,7 @@ impl LicenseManager {
 
         // ── Activate ────────────────────────────────────────────────────────
         let now = Utc::now();
-        let model_updates = now + chrono::Duration::days(365); // 1 year of updates
+        let model_updates = now + chrono::TimeDelta::days(365); // 1 year of updates
 
         let state = LicenseState::Activated {
             key_hash,
@@ -204,8 +207,14 @@ impl LicenseManager {
         if prefix != "AF" && prefix != "FT" {
             return false;
         }
-        for seg in &segments[1..] {
-            if seg.len() != 4 || !seg.chars().all(|c| c.is_ascii_alphanumeric()) {
+        // Segments 1-3 are 4 chars each, segment 4 (checksum) is 4 or 8 chars
+        for (i, seg) in segments[1..].iter().enumerate() {
+            let valid_len = if i == 3 {
+                seg.len() == 4 || seg.len() == 8
+            } else {
+                seg.len() == 4
+            };
+            if !valid_len || !seg.chars().all(|c| c.is_ascii_alphanumeric()) {
                 return false;
             }
         }
@@ -223,14 +232,22 @@ impl LicenseManager {
         let data = format!("{}-{}-{}", segments[1], segments[2], segments[3]);
         let expected = segments[4];
 
-        // Compute SHA256 of data, take first 4 chars
+        // Compute SHA256 of data, compare based on checksum length
         let mut hasher = Sha256::new();
         hasher.update(data.as_bytes());
         let hash = format!("{:x}", hasher.finalize());
-        let computed = &hash[..4];
 
-        // Case-insensitive comparison
-        computed.eq_ignore_ascii_case(expected)
+        if expected.len() == 8 {
+            // New format: 8 hex chars of SHA256
+            let computed = &hash[..8];
+            computed.eq_ignore_ascii_case(expected)
+        } else if expected.len() == 4 {
+            // Legacy format: 4 hex chars of SHA256
+            let computed = &hash[..4];
+            computed.eq_ignore_ascii_case(expected)
+        } else {
+            false
+        }
     }
 
     /// Hash the license key with device ID for local storage.
@@ -276,18 +293,55 @@ impl LicenseManager {
 
     // ── Persistence ─────────────────────────────────────────────────────────
 
+    /// Derive a 32-byte AES-256 key from the device ID using SHA-256.
+    fn encryption_key() -> Result<LessSafeKey, anyhow::Error> {
+        let device_id = Self::get_device_id();
+        let hash = ring_digest::digest(&ring_digest::SHA256, device_id.as_bytes());
+        let unbound = UnboundKey::new(&AES_256_GCM, hash.as_ref())
+            .map_err(|_| anyhow::anyhow!("Failed to create AES-256-GCM key"))?;
+        Ok(LessSafeKey::new(unbound))
+    }
+
     fn save_to_file(path: &PathBuf, state: &LicenseState) -> anyhow::Result<()> {
-        let json = serde_json::to_string_pretty(state)?;
-        // Simple obfuscation: XOR with a fixed byte (not secure, just obfuscation)
-        let obfuscated: Vec<u8> = json.bytes().map(|b| b ^ 0x5A).collect();
-        std::fs::write(path, obfuscated)?;
+        let json = serde_json::to_vec(state)?;
+        let key = Self::encryption_key()?;
+        let rng = SystemRandom::new();
+        let mut nonce_bytes = [0u8; 12];
+        rng.fill(&mut nonce_bytes)
+            .map_err(|_| anyhow::anyhow!("RNG failed"))?;
+        let nonce = Nonce::assume_unique_for_key(nonce_bytes);
+        let mut in_out = json;
+        let aad = Aad::empty();
+        key.seal_in_place_append_tag(nonce, aad, &mut in_out)
+            .map_err(|_| anyhow::anyhow!("Encryption failed"))?;
+        let mut output = nonce_bytes.to_vec();
+        output.append(&mut in_out);
+        std::fs::write(path, output)?;
         Ok(())
     }
 
     fn load_from_file(path: &PathBuf) -> anyhow::Result<LicenseState> {
-        let obfuscated = std::fs::read(path)?;
-        let json: String = obfuscated.iter().map(|b| (b ^ 0x5A) as char).collect();
+        let data = std::fs::read(path)?;
+
+        // Try AES-GCM decryption first (new format)
+        if data.len() >= 12 + AES_256_GCM.tag_len() {
+            let (nonce_bytes, ciphertext) = data.split_at(12);
+            let nonce = Nonce::assume_unique_for_key(nonce_bytes.try_into().unwrap());
+            if let Ok(key) = Self::encryption_key() {
+                let mut in_out = ciphertext.to_vec();
+                let aad = Aad::empty();
+                if let Ok(plaintext) = key.open_in_place(nonce, aad, &mut in_out) {
+                    if let Ok(state) = serde_json::from_slice::<LicenseState>(plaintext) {
+                        return Ok(state);
+                    }
+                }
+            }
+        }
+
+        // Fallback: legacy XOR obfuscation (remove in a future release)
+        let json: String = data.iter().map(|b| (b ^ 0x5A) as char).collect();
         let state: LicenseState = serde_json::from_str(&json)?;
+        log::warn!("License file uses legacy obfuscation; re-save will upgrade to encryption");
         Ok(state)
     }
 }
@@ -330,7 +384,7 @@ pub fn generate_license_key() -> String {
     let mut hasher = Sha256::new();
     hasher.update(data.as_bytes());
     let hash = format!("{:x}", hasher.finalize());
-    let checksum = hash[..4].to_uppercase();
+    let checksum = hash[..8].to_uppercase();
 
     format!("AF-{}-{}-{}-{}", seg1, seg2, seg3, checksum)
 }
@@ -419,7 +473,7 @@ mod tests {
         let mut hasher = sha2::Sha256::new();
         hasher.update(data.as_bytes());
         let hash = format!("{:x}", hasher.finalize());
-        eprintln!("Data: {}, hash first 4: {}", data, &hash[..4]);
+        eprintln!("Data: {}, hash first 8: {}", data, &hash[..8]);
         eprintln!("Expected checksum: {}", segments[4]);
         let result = manager.activate(&key);
         if let Err(ref e) = result {

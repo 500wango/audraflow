@@ -1,4 +1,5 @@
-fn diagnostics_preview(app_handle: &tauri::AppHandle) -> Result<DiagnosticsPreview, String> {
+use crate::*;
+pub(crate) fn diagnostics_preview(app_handle: &tauri::AppHandle) -> Result<DiagnosticsPreview, String> {
     let db_path = storage_db_path()?;
     let telemetry_path = telemetry_events_path(app_handle)?;
     let model_dir = model_cache_dir(app_handle)?;
@@ -23,7 +24,7 @@ fn diagnostics_preview(app_handle: &tauri::AppHandle) -> Result<DiagnosticsPrevi
     })
 }
 
-fn record_local_telemetry(
+pub(crate) fn record_local_telemetry(
     app_handle: &tauri::AppHandle,
     request: TelemetryEventRequest,
 ) -> Result<(), String> {
@@ -34,7 +35,7 @@ fn record_local_telemetry(
     append_local_telemetry(app_handle, &record)
 }
 
-fn correction_op_type(before: &str, after: &str) -> &'static str {
+pub(crate) fn correction_op_type(before: &str, after: &str) -> &'static str {
     if before.is_empty() && !after.is_empty() {
         "insert"
     } else if !before.is_empty() && after.is_empty() {
@@ -44,20 +45,20 @@ fn correction_op_type(before: &str, after: &str) -> &'static str {
     }
 }
 
-fn supported_media_extension(ext: &str) -> bool {
+pub(crate) fn supported_media_extension(ext: &str) -> bool {
     matches!(
         ext.to_ascii_lowercase().as_str(),
         "mp3" | "wav" | "m4a" | "mp4" | "mov" | "aac" | "flac" | "ogg" | "webm" | "mkv"
     )
 }
 
-fn is_supported_media_path(path: &Path) -> bool {
+pub(crate) fn is_supported_media_path(path: &Path) -> bool {
     path.extension()
         .and_then(|value| value.to_str())
         .is_some_and(supported_media_extension)
 }
 
-fn scan_media_folder(folder_path: &Path) -> Result<Vec<String>, String> {
+pub(crate) fn scan_media_folder(folder_path: &Path) -> Result<Vec<String>, String> {
     if !folder_path.is_dir() {
         return Err(format!("Not a folder: {}", folder_path.display()));
     }
@@ -69,7 +70,7 @@ fn scan_media_folder(folder_path: &Path) -> Result<Vec<String>, String> {
     Ok(files)
 }
 
-fn scan_media_folder_inner(folder_path: &Path, files: &mut Vec<String>) -> Result<(), String> {
+pub(crate) fn scan_media_folder_inner(folder_path: &Path, files: &mut Vec<String>) -> Result<(), String> {
     let entries = std::fs::read_dir(folder_path)
         .map_err(|e| format!("Failed to read folder {}: {e}", folder_path.display()))?;
 
@@ -86,7 +87,7 @@ fn scan_media_folder_inner(folder_path: &Path, files: &mut Vec<String>) -> Resul
     Ok(())
 }
 
-fn inspect_media_file(path: &Path) -> Result<MediaFileInfo, String> {
+pub(crate) fn inspect_media_file(path: &Path) -> Result<MediaFileInfo, String> {
     if !path.is_file() {
         return Err(format!("Not a file: {}", path.display()));
     }
@@ -116,18 +117,21 @@ fn inspect_media_file(path: &Path) -> Result<MediaFileInfo, String> {
     })
 }
 
-fn job_summary_to_dto(
+pub(crate) fn job_summary_to_dto(
     storage: &audraflow_storage::Storage,
     job: audraflow_storage::JobRow,
 ) -> Result<JobSummaryDto, String> {
     let path = PathBuf::from(&job.file_path);
-    let segments = storage
-        .get_segments(&job.job_id)
+    let segment_count = storage
+        .segment_count(&job.job_id)
         .map_err(|e| e.to_string())?;
     let duration_seconds = job.audio_duration_s.or_else(|| {
-        segments
-            .last()
-            .map(|segment| segment.end_ms.max(0) as f64 / 1000.0)
+        storage
+            .max_segment_end_ms(&job.job_id)
+            .map_err(|e| e.to_string())
+            .ok()
+            .flatten()
+            .map(|end_ms| end_ms.max(0) as f64 / 1000.0)
     });
 
     Ok(JobSummaryDto {
@@ -147,13 +151,13 @@ fn job_summary_to_dto(
         duration_seconds,
         state: job.state,
         extreme_accuracy: job.extreme_accuracy,
-        segment_count: segments.len() as u32,
+        segment_count,
         created_at: job.created_at,
         completed_at: job.completed_at,
     })
 }
 
-fn probe_media_duration_seconds(path: &Path) -> Option<f64> {
+pub(crate) fn probe_media_duration_seconds(path: &Path) -> Option<f64> {
     let output = std::process::Command::new(ffprobe_command())
         .args([
             "-v",
@@ -178,7 +182,7 @@ fn probe_media_duration_seconds(path: &Path) -> Option<f64> {
         .filter(|duration| duration.is_finite() && *duration > 0.0)
 }
 
-fn yt_dlp_command() -> PathBuf {
+pub(crate) fn yt_dlp_command() -> PathBuf {
     if let Some(path) = command_env_override("AUDRAFLOW_YT_DLP_BIN")
         .or_else(|| command_env_override("FT_YT_DLP_BIN"))
     {
@@ -215,7 +219,7 @@ fn yt_dlp_command() -> PathBuf {
     }
 }
 
-fn yt_dlp_command_for_app(app_handle: &tauri::AppHandle) -> PathBuf {
+pub(crate) fn yt_dlp_command_for_app(app_handle: &tauri::AppHandle) -> PathBuf {
     if let Some(path) =
         command_env_override("AUDRAFLOW_YT_DLP_BIN").or_else(|| command_env_override("FT_YT_DLP_BIN"))
     {
@@ -230,7 +234,7 @@ fn yt_dlp_command_for_app(app_handle: &tauri::AppHandle) -> PathBuf {
     yt_dlp_command()
 }
 
-fn yt_dlp_binary_name() -> &'static str {
+pub(crate) fn yt_dlp_binary_name() -> &'static str {
     if cfg!(windows) {
         "yt-dlp.exe"
     } else {
@@ -238,20 +242,20 @@ fn yt_dlp_binary_name() -> &'static str {
     }
 }
 
-fn managed_tools_bin_dir() -> PathBuf {
+pub(crate) fn managed_tools_bin_dir() -> PathBuf {
     app_data_dir().join("tools").join("bin")
 }
 
-fn managed_tool_path(name: &str) -> PathBuf {
+pub(crate) fn managed_tool_path(name: &str) -> PathBuf {
     managed_tools_bin_dir().join(name)
 }
 
-fn find_managed_tool(name: &str) -> Option<PathBuf> {
+pub(crate) fn find_managed_tool(name: &str) -> Option<PathBuf> {
     let path = managed_tool_path(name);
     path.is_file().then_some(path)
 }
 
-fn yt_dlp_download_url() -> &'static str {
+pub(crate) fn yt_dlp_download_url() -> &'static str {
     if cfg!(windows) {
         "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
     } else if cfg!(target_os = "macos") {
@@ -261,7 +265,7 @@ fn yt_dlp_download_url() -> &'static str {
     }
 }
 
-fn apply_yt_dlp_youtube_compat(command: &mut tokio::process::Command) {
+pub(crate) fn apply_yt_dlp_youtube_compat(command: &mut tokio::process::Command) {
     let extractor_args = std::env::var("AUDRAFLOW_YT_DLP_EXTRACTOR_ARGS")
         .ok()
         .map(|value| value.trim().to_string())
@@ -270,7 +274,7 @@ fn apply_yt_dlp_youtube_compat(command: &mut tokio::process::Command) {
     command.arg("--extractor-args").arg(extractor_args);
 }
 
-fn ffmpeg_command_for_app(app_handle: &tauri::AppHandle) -> PathBuf {
+pub(crate) fn ffmpeg_command_for_app(app_handle: &tauri::AppHandle) -> PathBuf {
     command_env_override("AUDRAFLOW_FFMPEG_BIN")
         .or_else(|| command_env_override("FT_FFMPEG_BIN"))
         .or_else(|| find_runtime_component_tool_for_app(app_handle, "ffmpeg", tool_binary_name("ffmpeg")))
@@ -280,7 +284,7 @@ fn ffmpeg_command_for_app(app_handle: &tauri::AppHandle) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("ffmpeg"))
 }
 
-fn ffprobe_command() -> PathBuf {
+pub(crate) fn ffprobe_command() -> PathBuf {
     command_env_override("AUDRAFLOW_FFPROBE_BIN")
         .or_else(|| command_env_override("FT_FFPROBE_BIN"))
         .or_else(|| find_runtime_component_tool("ffmpeg", tool_binary_name("ffprobe")))
@@ -289,7 +293,7 @@ fn ffprobe_command() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("ffprobe"))
 }
 
-fn ffprobe_command_for_app(app_handle: &tauri::AppHandle) -> PathBuf {
+pub(crate) fn ffprobe_command_for_app(app_handle: &tauri::AppHandle) -> PathBuf {
     command_env_override("AUDRAFLOW_FFPROBE_BIN")
         .or_else(|| command_env_override("FT_FFPROBE_BIN"))
         .or_else(|| find_runtime_component_tool_for_app(app_handle, "ffmpeg", tool_binary_name("ffprobe")))
@@ -299,13 +303,13 @@ fn ffprobe_command_for_app(app_handle: &tauri::AppHandle) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("ffprobe"))
 }
 
-fn command_env_override(name: &str) -> Option<PathBuf> {
+pub(crate) fn command_env_override(name: &str) -> Option<PathBuf> {
     std::env::var_os(name)
         .map(PathBuf::from)
         .filter(|path| !path.as_os_str().is_empty())
 }
 
-fn find_system_command(name: &str) -> Option<PathBuf> {
+pub(crate) fn find_system_command(name: &str) -> Option<PathBuf> {
     if let Some(path) = find_command_in_path(name) {
         return Some(path);
     }
@@ -322,7 +326,7 @@ fn find_system_command(name: &str) -> Option<PathBuf> {
     candidates.into_iter().find(|path| path.exists())
 }
 
-fn find_command_in_path(name: &str) -> Option<PathBuf> {
+pub(crate) fn find_command_in_path(name: &str) -> Option<PathBuf> {
     let path_var = std::env::var_os("PATH")?;
     for dir in std::env::split_paths(&path_var) {
         let candidate = dir.join(name);
@@ -339,7 +343,7 @@ fn find_command_in_path(name: &str) -> Option<PathBuf> {
     None
 }
 
-fn find_bundled_command(name: &str) -> Option<PathBuf> {
+pub(crate) fn find_bundled_command(name: &str) -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     for root in exe.ancestors() {
         for candidate in bundled_command_candidates(root, name) {
@@ -351,7 +355,7 @@ fn find_bundled_command(name: &str) -> Option<PathBuf> {
     None
 }
 
-fn bundled_command_candidates(root: &Path, name: &str) -> Vec<PathBuf> {
+pub(crate) fn bundled_command_candidates(root: &Path, name: &str) -> Vec<PathBuf> {
     let prefixed_name = format!("audraflow-{name}");
     let windows_name = if cfg!(windows) && !name.ends_with(".exe") {
         Some(format!("{name}.exe"))
@@ -400,7 +404,7 @@ fn bundled_command_candidates(root: &Path, name: &str) -> Vec<PathBuf> {
     candidates
 }
 
-fn format_seconds_arg(seconds: f64) -> String {
+pub(crate) fn format_seconds_arg(seconds: f64) -> String {
     let rounded = seconds.round();
     if (seconds - rounded).abs() < 0.001 {
         format!("{}", rounded as u64)
@@ -413,7 +417,7 @@ fn format_seconds_arg(seconds: f64) -> String {
     }
 }
 
-fn normalize_skip_start_seconds(value: Option<f64>) -> Result<f64, String> {
+pub(crate) fn normalize_skip_start_seconds(value: Option<f64>) -> Result<f64, String> {
     let seconds = value.unwrap_or(0.0);
     if !seconds.is_finite() || seconds < 0.0 {
         return Err("Skip intro must be 0 or a positive number of seconds".into());
@@ -421,7 +425,7 @@ fn normalize_skip_start_seconds(value: Option<f64>) -> Result<f64, String> {
     Ok(seconds.min(MAX_SKIP_START_SECONDS))
 }
 
-fn normalize_url_preview_seconds(value: Option<f64>) -> Result<f64, String> {
+pub(crate) fn normalize_url_preview_seconds(value: Option<f64>) -> Result<f64, String> {
     let seconds = value.unwrap_or(DEFAULT_URL_PREVIEW_SECONDS);
     if !seconds.is_finite() || seconds <= 0.0 {
         return Err("Preview duration must be a positive number of seconds".into());
@@ -429,7 +433,7 @@ fn normalize_url_preview_seconds(value: Option<f64>) -> Result<f64, String> {
     Ok(seconds.min(MAX_URL_PREVIEW_SECONDS))
 }
 
-fn trim_stderr(stderr: &[u8]) -> String {
+pub(crate) fn trim_stderr(stderr: &[u8]) -> String {
     let text = String::from_utf8_lossy(stderr).trim().to_string();
     let mut chars = text.chars();
     let shortened: String = chars.by_ref().take(1200).collect();
@@ -441,7 +445,7 @@ fn trim_stderr(stderr: &[u8]) -> String {
 }
 
 #[cfg(target_os = "windows")]
-fn pipe_exists() -> bool {
+pub(crate) fn pipe_exists() -> bool {
     std::fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -450,7 +454,7 @@ fn pipe_exists() -> bool {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn orchestrator_socket_path() -> PathBuf {
+pub(crate) fn orchestrator_socket_path() -> PathBuf {
     std::env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(std::env::temp_dir)
@@ -458,11 +462,11 @@ fn orchestrator_socket_path() -> PathBuf {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn socket_exists() -> bool {
+pub(crate) fn socket_exists() -> bool {
     std::os::unix::net::UnixStream::connect(orchestrator_socket_path()).is_ok()
 }
 
-fn workspace_root_from_current_exe() -> Option<PathBuf> {
+pub(crate) fn workspace_root_from_current_exe() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     for ancestor in exe.ancestors() {
         if ancestor.join("Cargo.toml").exists() && ancestor.join("orchestrator").exists() {
@@ -472,7 +476,7 @@ fn workspace_root_from_current_exe() -> Option<PathBuf> {
     None
 }
 
-fn bundled_sidecar_names(stem: &str) -> Vec<String> {
+pub(crate) fn bundled_sidecar_names(stem: &str) -> Vec<String> {
     let extension = if cfg!(windows) { ".exe" } else { "" };
     let mut names = vec![format!("{stem}{extension}")];
     if let Some(target_triple) = option_env!("TAURI_ENV_TARGET_TRIPLE") {
@@ -481,7 +485,7 @@ fn bundled_sidecar_names(stem: &str) -> Vec<String> {
     names
 }
 
-fn bundled_sidecar_roots(app_handle: &tauri::AppHandle) -> Vec<PathBuf> {
+pub(crate) fn bundled_sidecar_roots(app_handle: &tauri::AppHandle) -> Vec<PathBuf> {
     let mut roots = Vec::new();
     if let Ok(exe) = std::env::current_exe() {
         if let Some(app_dir) = exe.parent() {
@@ -497,7 +501,7 @@ fn bundled_sidecar_roots(app_handle: &tauri::AppHandle) -> Vec<PathBuf> {
     dedupe_path_list(roots)
 }
 
-fn find_bundled_sidecar(app_handle: &tauri::AppHandle, stem: &str) -> Option<PathBuf> {
+pub(crate) fn find_bundled_sidecar(app_handle: &tauri::AppHandle, stem: &str) -> Option<PathBuf> {
     let names = bundled_sidecar_names(stem);
     for root in bundled_sidecar_roots(app_handle) {
         for name in &names {
@@ -511,7 +515,7 @@ fn find_bundled_sidecar(app_handle: &tauri::AppHandle, stem: &str) -> Option<Pat
 }
 
 #[cfg(target_os = "windows")]
-fn start_orchestrator(app_handle: &tauri::AppHandle) {
+pub(crate) fn start_orchestrator(app_handle: &tauri::AppHandle) {
     if pipe_exists() {
         log::info!("Orchestrator pipe already available");
         return;
@@ -576,7 +580,7 @@ fn start_orchestrator(app_handle: &tauri::AppHandle) {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn start_orchestrator(app_handle: &tauri::AppHandle) {
+pub(crate) fn start_orchestrator(app_handle: &tauri::AppHandle) {
     if socket_exists() {
         log::info!("Orchestrator socket already available");
         return;
@@ -643,7 +647,7 @@ fn start_orchestrator(app_handle: &tauri::AppHandle) {
     }
 }
 
-fn sanitize_remote_filename(raw: &str) -> String {
+pub(crate) fn sanitize_remote_filename(raw: &str) -> String {
     let name = raw
         .rsplit(['/', '\\'])
         .next()
@@ -674,7 +678,7 @@ fn sanitize_remote_filename(raw: &str) -> String {
     }
 }
 
-fn extension_from_content_type(content_type: Option<&str>) -> Option<&'static str> {
+pub(crate) fn extension_from_content_type(content_type: Option<&str>) -> Option<&'static str> {
     let value = content_type?.split(';').next()?.trim().to_ascii_lowercase();
     match value.as_str() {
         "audio/mpeg" | "audio/mp3" => Some("mp3"),
@@ -690,7 +694,7 @@ fn extension_from_content_type(content_type: Option<&str>) -> Option<&'static st
     }
 }
 
-fn filename_from_headers_or_url(url: &str, content_type: Option<&str>) -> Result<String, String> {
+pub(crate) fn filename_from_headers_or_url(url: &str, content_type: Option<&str>) -> Result<String, String> {
     let mut name = sanitize_remote_filename(url);
     let ext = Path::new(&name)
         .extension()

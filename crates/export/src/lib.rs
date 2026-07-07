@@ -122,7 +122,7 @@ fn should_render_speaker(speaker: Option<&str>, options: &ExportOptions) -> bool
     }
 }
 
-fn is_named_speaker(speaker: &str) -> bool {
+pub fn is_named_speaker(speaker: &str) -> bool {
     let normalized = speaker.trim().to_ascii_lowercase();
     !normalized.is_empty()
         && normalized != "speaker"
