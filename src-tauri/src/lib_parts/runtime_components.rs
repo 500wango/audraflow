@@ -485,7 +485,17 @@ pub(crate) async fn install_runtime_component(
         &download_path,
         spec.min_download_bytes,
     )
-    .await?;
+    .await
+    .map_err(|e| {
+        emit_runtime_component_progress(
+            app_handle,
+            spec.id,
+            0,
+            0,
+            format!("Download failed: {e}"),
+        );
+        e
+    })?;
 
     install_component_payload(spec, &download_path, &staging_bin_dir)?;
     verify_component_files(spec, &staging_bin_dir)?;
@@ -542,7 +552,17 @@ pub(crate) async fn install_runtime_component_installer(
         &download_path,
         spec.min_download_bytes,
     )
-    .await?;
+    .await
+    .map_err(|e| {
+        emit_runtime_component_progress(
+            app_handle,
+            spec.id,
+            0,
+            0,
+            format!("Download failed: {e}"),
+        );
+        e
+    })?;
 
     emit_runtime_component_progress(
         app_handle,
