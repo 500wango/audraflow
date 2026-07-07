@@ -665,24 +665,31 @@ fn binary_env_override(name: &str) -> Option<std::path::PathBuf> {
 }
 
 fn bundled_binary_candidates(root: &std::path::Path, name: &str) -> Vec<std::path::PathBuf> {
+    let prefixed_name = format!("audraflow-{name}");
     let mut candidates = vec![
         root.join(name),
+        root.join(&prefixed_name),
         root.join("bin").join(name),
+        root.join("bin").join(&prefixed_name),
         root.join("external").join("ffmpeg").join("bin").join(name),
         root.join("tools").join("ffmpeg").join("bin").join(name),
     ];
     if cfg!(windows) {
+        let name_exe = format!("{name}.exe");
+        let prefixed_exe = format!("{prefixed_name}.exe");
         candidates.extend([
-            root.join(format!("{name}.exe")),
-            root.join("bin").join(format!("{name}.exe")),
+            root.join(&name_exe),
+            root.join(&prefixed_exe),
+            root.join("bin").join(&name_exe),
+            root.join("bin").join(&prefixed_exe),
             root.join("external")
                 .join("ffmpeg")
                 .join("bin")
-                .join(format!("{name}.exe")),
+                .join(&name_exe),
             root.join("tools")
                 .join("ffmpeg")
                 .join("bin")
-                .join(format!("{name}.exe")),
+                .join(&name_exe),
         ]);
     }
     candidates
