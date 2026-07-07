@@ -497,8 +497,18 @@ pub(crate) async fn install_runtime_component(
         e
     })?;
 
-    install_component_payload(spec, &download_path, &staging_bin_dir)?;
-    verify_component_files(spec, &staging_bin_dir)?;
+    emit_runtime_component_progress(app_handle, spec.id, 0, 0, "Extracting archive...");
+    install_component_payload(spec, &download_path, &staging_bin_dir)
+        .map_err(|e| {
+            emit_runtime_component_progress(app_handle, spec.id, 0, 0, format!("Extraction failed: {e}"));
+            e
+        })?;
+    emit_runtime_component_progress(app_handle, spec.id, 0, 0, format!("Verifying files in {}", staging_bin_dir.display()));
+    verify_component_files(spec, &staging_bin_dir)
+        .map_err(|e| {
+            emit_runtime_component_progress(app_handle, spec.id, 0, 0, format!("Verification failed: {e}"));
+            e
+        })?;
     for file_name in spec.required_files {
         mark_executable(&staging_bin_dir.join(file_name))?;
     }
@@ -728,8 +738,10 @@ pub(crate) async fn download_url_to_path_with_progress(
         id,
         0,
         0,
-        format!("Connecting to {url} (auth: {has_auth})"),
+        format!("Requesting {url}"),
     );
+
+    log::debug!("Runtime component download: {url} (auth: {has_auth})");
 
     let response = client
         .get(url)
