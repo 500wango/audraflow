@@ -70,10 +70,7 @@ pub(crate) fn runtime_component_specs() -> Vec<RuntimeComponentSpec> {
             id: "ffmpeg",
             kind: "required",
             env_url: "AUDRAFLOW_COMPONENT_FFMPEG_URL",
-            default_url: Some(github_release_asset_url(&format!(
-                "AudraFlow_{}_windows_ffmpeg-runtime.zip",
-                env!("CARGO_PKG_VERSION")
-            ))),
+            default_url: Some("https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip".into()),
             download_size_bytes: 95 * 1024 * 1024,
             min_download_bytes: 1024 * 1024,
             required_files: &["ffmpeg.exe", "ffprobe.exe"],

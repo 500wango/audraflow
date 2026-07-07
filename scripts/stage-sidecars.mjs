@@ -254,18 +254,6 @@ if (targetTriple.includes('linux')) {
         join(workspaceRoot, 'external', 'whisper.cpp', 'build', 'bin', 'whisper-cli.exe'),
       ],
     },
-    {
-      bundleName: 'audraflow-ffmpeg',
-      sources: [
-        join(workspaceRoot, 'release', 'windows-portable', 'AudraFlow', 'bin', 'ffmpeg.exe'),
-      ],
-    },
-    {
-      bundleName: 'audraflow-ffprobe',
-      sources: [
-        join(workspaceRoot, 'release', 'windows-portable', 'AudraFlow', 'bin', 'ffprobe.exe'),
-      ],
-    },
   ]) {
     await stageExternalTool(tool);
   }
