@@ -19,7 +19,9 @@ fn run_whisper_pipeline_pass(
     let mut info = pipeline
         .analyze(file_path, file_hash)
         .map_err(|e| {
+            use std::io::Write;
             eprintln!("FATAL_ANALYZE: {e:#}");
+            std::io::stderr().flush().ok();
             e
         })?;
 
@@ -28,7 +30,9 @@ fn run_whisper_pipeline_pass(
     let wav_path = pipeline
         .decode_to_wav(file_path)
         .map_err(|e| {
+            use std::io::Write;
             eprintln!("FATAL_DECODE: {e:#}");
+            std::io::stderr().flush().ok();
             e
         })?;
 

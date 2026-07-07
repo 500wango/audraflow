@@ -41,3 +41,4 @@ external/whisper.cpp/models/*.bin
 *.njsproj
 *.sln
 *.sw?
+src-tauri/default-models/
