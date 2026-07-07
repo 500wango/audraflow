@@ -1,5 +1,14 @@
 !include LogicLib.nsh
 
+; ── Stop running AudraFlow processes before overwriting files ──────────
+!macro NSIS_HOOK_PREINSTALL
+  DetailPrint "Stopping running AudraFlow processes..."
+  nsExec::ExecToLog 'taskkill /f /im AudraFlow.exe 2>nul'
+  nsExec::ExecToLog 'taskkill /f /im audraflow-orchestrator.exe 2>nul'
+  nsExec::ExecToLog 'taskkill /f /im audraflow-asr-runtime.exe 2>nul'
+  Sleep 1500
+!macroend
+
 !macro AUDRAFLOW_INSTALL_VC_REDIST_X64
   SetRegView 64
   ClearErrors
