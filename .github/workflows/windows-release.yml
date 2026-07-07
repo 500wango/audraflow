@@ -129,10 +129,51 @@ jobs:
       - name: Stage sidecars
         run: npm run stage:sidecars
 
+      - name: Check staged sidecars
+        shell: pwsh
+        run: |
+          foreach ($name in @(
+            "src-tauri\binaries\audraflow-orchestrator-x86_64-pc-windows-msvc.exe",
+            "src-tauri\binaries\audraflow-asr-runtime-x86_64-pc-windows-msvc.exe"
+          )) {
+            if (-not (Test-Path -LiteralPath $name -PathType Leaf)) {
+              throw "Missing staged sidecar: $name"
+            }
+            $item = Get-Item -LiteralPath $name
+            if ($item.Length -lt 1024) {
+              throw "Staged sidecar is too small: $name ($($item.Length) bytes)"
+            }
+            Write-Host "OK $name ($($item.Length) bytes)"
+          }
+
       - name: Build Windows installers
         env:
           AUDRAFLOW_SKIP_BEFORE_BUILD: "1"
         run: npm run desktop:build:windows
+
+      - name: Check bundled sidecars
+        shell: pwsh
+        run: |
+          foreach ($name in @(
+            "target\release\audraflow-orchestrator.exe",
+            "target\release\audraflow-asr-runtime.exe"
+          )) {
+            if (-not (Test-Path -LiteralPath $name -PathType Leaf)) {
+              throw "Missing bundled sidecar after Tauri build: $name"
+            }
+            $item = Get-Item -LiteralPath $name
+            if ($item.Length -lt 1024) {
+              throw "Bundled sidecar is too small: $name ($($item.Length) bytes)"
+            }
+            Write-Host "OK $name ($($item.Length) bytes)"
+          }
+
+      - name: Verify Windows release layout
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-windows-release.ps1 `
+            -PortableDir target\release `
+            -SkipSmoke
 
       - name: Generate release manifest
         run: npm run release:manifest -- --require-windows --artifact-set windows

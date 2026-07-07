@@ -52,6 +52,26 @@ function Assert-File {
   return $item
 }
 
+function Find-AppFile {
+  param(
+    [string]$AppDir,
+    [string]$FileName
+  )
+
+  $roots = @(
+    $AppDir,
+    (Join-Path $AppDir 'resources'),
+    (Join-Path $AppDir 'resources\bin')
+  )
+  foreach ($root in $roots) {
+    $candidate = Join-Path $root $FileName
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+      return $candidate
+    }
+  }
+  return $null
+}
+
 function Invoke-Checked {
   param(
     [string]$FilePath,
@@ -87,8 +107,12 @@ function Test-AudraFlowAppLayout {
   )
 
   foreach ($relativePath in $required) {
-    $item = Assert-File -Path (Join-Path $resolved $relativePath) -MinBytes 1024
-    Write-Host ("OK {0} ({1:N0} bytes)" -f $relativePath, $item.Length)
+    $path = Find-AppFile -AppDir $resolved -FileName $relativePath
+    if (-not $path) {
+      throw "Missing $relativePath under $resolved, $resolved\resources, or $resolved\resources\bin"
+    }
+    $item = Assert-File -Path $path -MinBytes 1024
+    Write-Host ("OK {0} ({1:N0} bytes)" -f $path, $item.Length)
   }
 
   return $resolved

@@ -446,6 +446,44 @@ fn workspace_root_from_current_exe() -> Option<PathBuf> {
     None
 }
 
+fn bundled_sidecar_names(stem: &str) -> Vec<String> {
+    let extension = if cfg!(windows) { ".exe" } else { "" };
+    let mut names = vec![format!("{stem}{extension}")];
+    if let Some(target_triple) = option_env!("TAURI_ENV_TARGET_TRIPLE") {
+        names.push(format!("{stem}-{target_triple}{extension}"));
+    }
+    names
+}
+
+fn bundled_sidecar_roots(app_handle: &tauri::AppHandle) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(app_dir) = exe.parent() {
+            roots.push(app_dir.to_path_buf());
+            roots.push(app_dir.join("resources"));
+            roots.push(app_dir.join("../Resources"));
+        }
+    }
+    if let Ok(resource_dir) = app_handle.path().resource_dir() {
+        roots.push(resource_dir.clone());
+        roots.push(resource_dir.join("bin"));
+    }
+    dedupe_path_list(roots)
+}
+
+fn find_bundled_sidecar(app_handle: &tauri::AppHandle, stem: &str) -> Option<PathBuf> {
+    let names = bundled_sidecar_names(stem);
+    for root in bundled_sidecar_roots(app_handle) {
+        for name in &names {
+            let candidate = root.join(name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
 #[cfg(target_os = "windows")]
 fn start_orchestrator(app_handle: &tauri::AppHandle) {
     if pipe_exists() {
@@ -469,15 +507,19 @@ fn start_orchestrator(app_handle: &tauri::AppHandle) {
             .current_dir(&workspace_root);
         command
     } else {
-        let Some(app_dir) = std::env::current_exe()
-            .ok()
-            .and_then(|exe| exe.parent().map(Path::to_path_buf))
+        let Some(orchestrator_exe) = find_bundled_sidecar(app_handle, "audraflow-orchestrator")
         else {
-            log::warn!("Could not locate app executable directory; orchestrator was not started");
+            log::error!(
+                "Could not locate bundled audraflow-orchestrator.exe; searched roots: {:?}",
+                bundled_sidecar_roots(app_handle)
+            );
             return;
         };
+        let app_dir = orchestrator_exe
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
 
-        let orchestrator_exe = app_dir.join("audraflow-orchestrator.exe");
         let mut command = std::process::Command::new(orchestrator_exe);
         command.current_dir(app_dir);
         command
@@ -540,15 +582,19 @@ fn start_orchestrator(app_handle: &tauri::AppHandle) {
             command
         }
     } else {
-        let Some(app_dir) = std::env::current_exe()
-            .ok()
-            .and_then(|exe| exe.parent().map(Path::to_path_buf))
+        let Some(orchestrator_exe) = find_bundled_sidecar(app_handle, "audraflow-orchestrator")
         else {
-            log::warn!("Could not locate app executable directory; orchestrator was not started");
+            log::error!(
+                "Could not locate bundled audraflow-orchestrator; searched roots: {:?}",
+                bundled_sidecar_roots(app_handle)
+            );
             return;
         };
+        let app_dir = orchestrator_exe
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
 
-        let orchestrator_exe = app_dir.join("audraflow-orchestrator");
         let mut command = std::process::Command::new(orchestrator_exe);
         command.current_dir(app_dir);
         command
