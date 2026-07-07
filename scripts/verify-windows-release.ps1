@@ -101,8 +101,7 @@ function Test-RuntimeComponentArchives {
   $version = (Get-Content -LiteralPath (Join-Path $Workspace 'package.json') -Raw | ConvertFrom-Json).version
   $archives = @(
     "release\AudraFlow_${version}_windows_whisper-runtime.zip",
-    "release\AudraFlow_${version}_windows_ffmpeg-runtime.zip",
-    "release\AudraFlow_${version}_windows_funasr-runtime.zip"
+    "release\AudraFlow_${version}_windows_ffmpeg-runtime.zip"
   )
   foreach ($relativePath in $archives) {
     $item = Assert-File -Path (Join-Path $Workspace $relativePath) -MinBytes 1024
@@ -122,8 +121,7 @@ function Install-TestRuntimeComponents {
 
   $components = @(
     @{ Id = 'whisper'; Archive = "release\AudraFlow_${version}_windows_whisper-runtime.zip" },
-    @{ Id = 'ffmpeg'; Archive = "release\AudraFlow_${version}_windows_ffmpeg-runtime.zip" },
-    @{ Id = 'funasr'; Archive = "release\AudraFlow_${version}_windows_funasr-runtime.zip" }
+    @{ Id = 'ffmpeg'; Archive = "release\AudraFlow_${version}_windows_ffmpeg-runtime.zip" }
   )
   foreach ($component in $components) {
     $archivePath = Join-Path $Workspace $component.Archive
