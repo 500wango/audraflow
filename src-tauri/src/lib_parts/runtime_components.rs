@@ -703,7 +703,13 @@ pub(crate) async fn download_url_to_path_with_progress(
     let has_auth = option_env!("AUDRAFLOW_GITHUB_TOKEN")
         .map(|s| !s.trim().is_empty())
         .unwrap_or(false);
-    log::info!("Downloading runtime component {id}: {url} (auth: {has_auth})");
+    emit_runtime_component_progress(
+        app_handle,
+        id,
+        0,
+        0,
+        format!("Connecting to {url} (auth: {has_auth})"),
+    );
 
     let response = client
         .get(url)
