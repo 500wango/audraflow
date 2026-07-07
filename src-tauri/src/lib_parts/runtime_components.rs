@@ -677,11 +677,27 @@ pub(crate) async fn download_url_to_path_with_progress(
 
     let tmp_path = destination.with_extension("tmp");
     let _ = tokio::fs::remove_file(&tmp_path).await;
-    let response = reqwest::get(url)
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .connect_timeout(Duration::from_secs(10))
+        .user_agent("AudraFlow/1.0")
+        .build()
+        .map_err(|e| format!("Failed to create download client: {e}"))?;
+
+    let response = client
+        .get(url)
+        .send()
         .await
         .map_err(|e| format!("Failed to download {url}: {e}"))?;
-    if !response.status().is_success() {
-        return Err(format!("Runtime component download failed with {}", response.status()));
+
+    let status = response.status();
+    if !status.is_success() {
+        let hint = match status.as_u16() {
+            404 => "The runtime component archive was not found. If this is a local build, the release artifacts may not have been uploaded to GitHub yet. Set the AUDRAFLOW_COMPONENT_WHISPER_URL or AUDRAFLOW_COMPONENT_FFMPEG_URL environment variable to a local zip path.".to_string(),
+            403 => "Access to the download URL was denied. The GitHub release may not be published yet.".to_string(),
+            _ => format!("HTTP {}", status),
+        };
+        return Err(format!("Runtime component download failed: {hint} (URL: {url})"));
     }
 
     let total = response.content_length().unwrap_or(0);
