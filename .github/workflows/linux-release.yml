@@ -87,7 +87,24 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Resolve component release tag
+        id: component-tag
+        run: |
+          if echo "$GITHUB_REF_NAME" | grep -q '^v'; then
+            tag="$GITHUB_REF_NAME"
+          elif [ -n "${{ inputs.release_tag }}" ]; then
+            tag="${{ inputs.release_tag }}"
+          else
+            version="$(node -p "require('./package.json').version")"
+            tag="v$version"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Component release tag: $tag"
+
       - name: Build Linux packages
+        env:
+          AUDRAFLOW_COMPONENT_RELEASE_TAG: ${{ steps.component-tag.outputs.tag }}
+          AUDRAFLOW_COMPONENT_BASE_URL: ${{ format('https://github.com/{0}/releases/download/{1}', github.repository, steps.component-tag.outputs.tag) }}
         run: npm run desktop:build:linux
 
       - name: Package runtime components

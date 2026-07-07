@@ -181,7 +181,10 @@ pub(crate) fn github_release_asset_url(asset_name: &str) -> String {
         .ok()
         .map(|value| value.trim().trim_end_matches('/').to_string())
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| format!("https://github.com/500wango/audraflow/releases/download/{tag}"));
+        .unwrap_or_else(|| {
+            let repo = option_env!("AUDRAFLOW_BUILD_REPO").unwrap_or("unknown/audraflow");
+            format!("https://github.com/{repo}/releases/download/{tag}")
+        });
     format!("{base}/{asset_name}")
 }
 

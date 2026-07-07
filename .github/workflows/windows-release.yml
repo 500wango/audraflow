@@ -146,9 +146,26 @@ jobs:
             Write-Host "OK $name ($($item.Length) bytes)"
           }
 
+      - name: Resolve component release tag
+        id: component-tag
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF_NAME -match '^v') {
+            $tag = $env:GITHUB_REF_NAME
+          } elseif ('${{ inputs.release_tag }}') {
+            $tag = '${{ inputs.release_tag }}'
+          } else {
+            $version = (Get-Content -Raw package.json | ConvertFrom-Json).version
+            $tag = "v$version"
+          }
+          echo "tag=$tag" >> $env:GITHUB_OUTPUT
+          Write-Host "Component release tag: $tag"
+
       - name: Build Windows installers
         env:
           AUDRAFLOW_SKIP_BEFORE_BUILD: "1"
+          AUDRAFLOW_COMPONENT_RELEASE_TAG: ${{ steps.component-tag.outputs.tag }}
+          AUDRAFLOW_COMPONENT_BASE_URL: ${{ format('https://github.com/{0}/releases/download/{1}', github.repository, steps.component-tag.outputs.tag) }}
         run: npm run desktop:build:windows
 
       - name: Check bundled sidecars
