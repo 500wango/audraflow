@@ -2,7 +2,10 @@
   "bundle": {
     "externalBin": [
       "binaries/audraflow-orchestrator",
-      "binaries/audraflow-asr-runtime"
+      "binaries/audraflow-asr-runtime",
+      "binaries/audraflow-whisper-cli",
+      "binaries/audraflow-ffmpeg",
+      "binaries/audraflow-ffprobe"
     ]
   }
 }
