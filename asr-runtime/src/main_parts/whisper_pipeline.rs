@@ -24,6 +24,7 @@ fn run_whisper_pipeline_pass(
             return Err(e);
         }
     };
+    let _ = std::fs::write("/tmp/audraflow-step.log", "AFTER_ANALYZE_OK");
 
     // ── Step 2: Decode to 16kHz mono WAV ──────────────────────────────────
     log::info!("[2/4] Decoding {label}...");
