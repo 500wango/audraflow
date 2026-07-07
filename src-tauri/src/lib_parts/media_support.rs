@@ -215,6 +215,21 @@ fn yt_dlp_command() -> PathBuf {
     }
 }
 
+fn yt_dlp_command_for_app(app_handle: &tauri::AppHandle) -> PathBuf {
+    if let Some(path) =
+        command_env_override("AUDRAFLOW_YT_DLP_BIN").or_else(|| command_env_override("FT_YT_DLP_BIN"))
+    {
+        return path;
+    }
+
+    if let Some(path) = find_runtime_component_tool_for_app(app_handle, "yt-dlp", yt_dlp_binary_name())
+    {
+        return path;
+    }
+
+    yt_dlp_command()
+}
+
 fn yt_dlp_binary_name() -> &'static str {
     if cfg!(windows) {
         "yt-dlp.exe"
@@ -255,9 +270,10 @@ fn apply_yt_dlp_youtube_compat(command: &mut tokio::process::Command) {
     command.arg("--extractor-args").arg(extractor_args);
 }
 
-fn ffmpeg_command() -> PathBuf {
+fn ffmpeg_command_for_app(app_handle: &tauri::AppHandle) -> PathBuf {
     command_env_override("AUDRAFLOW_FFMPEG_BIN")
         .or_else(|| command_env_override("FT_FFMPEG_BIN"))
+        .or_else(|| find_runtime_component_tool_for_app(app_handle, "ffmpeg", tool_binary_name("ffmpeg")))
         .or_else(|| find_runtime_component_tool("ffmpeg", tool_binary_name("ffmpeg")))
         .or_else(|| find_bundled_command("ffmpeg"))
         .or_else(|| find_dev_or_portable_tool(tool_binary_name("ffmpeg")))
@@ -267,6 +283,16 @@ fn ffmpeg_command() -> PathBuf {
 fn ffprobe_command() -> PathBuf {
     command_env_override("AUDRAFLOW_FFPROBE_BIN")
         .or_else(|| command_env_override("FT_FFPROBE_BIN"))
+        .or_else(|| find_runtime_component_tool("ffmpeg", tool_binary_name("ffprobe")))
+        .or_else(|| find_bundled_command("ffprobe"))
+        .or_else(|| find_dev_or_portable_tool(tool_binary_name("ffprobe")))
+        .unwrap_or_else(|| PathBuf::from("ffprobe"))
+}
+
+fn ffprobe_command_for_app(app_handle: &tauri::AppHandle) -> PathBuf {
+    command_env_override("AUDRAFLOW_FFPROBE_BIN")
+        .or_else(|| command_env_override("FT_FFPROBE_BIN"))
+        .or_else(|| find_runtime_component_tool_for_app(app_handle, "ffmpeg", tool_binary_name("ffprobe")))
         .or_else(|| find_runtime_component_tool("ffmpeg", tool_binary_name("ffprobe")))
         .or_else(|| find_bundled_command("ffprobe"))
         .or_else(|| find_dev_or_portable_tool(tool_binary_name("ffprobe")))

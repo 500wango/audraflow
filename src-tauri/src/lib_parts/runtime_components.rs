@@ -241,6 +241,16 @@ fn find_runtime_component_tool(component_id: &str, file_name: &str) -> Option<Pa
     path.is_file().then_some(path)
 }
 
+fn find_runtime_component_tool_for_app(
+    app_handle: &tauri::AppHandle,
+    component_id: &str,
+    file_name: &str,
+) -> Option<PathBuf> {
+    let component_dir = runtime_component_dir_for_app(app_handle, component_id).ok()?;
+    let path = component_dir.join("bin").join(file_name);
+    path.is_file().then_some(path)
+}
+
 fn find_runtime_component_spec(id: &str) -> Option<RuntimeComponentSpec> {
     let normalized = normalize_runtime_component_id(id)?;
     runtime_component_specs()

@@ -167,13 +167,14 @@ export function SettingsPage({
         id: item.id,
       });
       setRuntimeHealth(result.health);
+      setRuntimeComponents(result.components);
       setRuntimeHealthStatus(result.message);
-      void refreshRuntimeComponents();
       onRefreshModelSettings();
       refreshDiagnosticsPreview();
     } catch (error) {
       setRuntimeHealthStatus(errorToMessage(error, t));
       void refreshRuntimeHealth();
+      void refreshRuntimeComponents();
     } finally {
       setRuntimeRepairAction(null);
     }

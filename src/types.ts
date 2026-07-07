@@ -177,6 +177,7 @@ export interface RuntimeRepairResult {
   id: string;
   message: string;
   health: RuntimeHealth;
+  components: RuntimeComponent[];
 }
 
 export interface RuntimeComponent {

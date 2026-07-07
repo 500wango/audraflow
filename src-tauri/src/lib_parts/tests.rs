@@ -56,6 +56,58 @@ mod tests {
     }
 
     #[test]
+    fn repair_validation_accepts_ready_target() {
+        let health = RuntimeHealthDto {
+            generated_at_ms: 0,
+            blocking_count: 0,
+            warning_count: 0,
+            items: vec![RuntimeDependencyDto {
+                id: "ffmpeg".into(),
+                status: "ready".into(),
+                kind: "required".into(),
+                path: Some("/tmp/ffmpeg".into()),
+                version: Some("ffmpeg version test".into()),
+                detail: None,
+                repairable: true,
+            }, RuntimeDependencyDto {
+                id: "ffprobe".into(),
+                status: "ready".into(),
+                kind: "required".into(),
+                path: Some("/tmp/ffprobe".into()),
+                version: Some("ffprobe version test".into()),
+                detail: None,
+                repairable: true,
+            }],
+        };
+
+        assert!(ensure_repair_succeeded(&health, "ffmpeg").is_ok());
+    }
+
+    #[test]
+    fn repair_validation_rejects_unready_target() {
+        let health = RuntimeHealthDto {
+            generated_at_ms: 0,
+            blocking_count: 1,
+            warning_count: 0,
+            items: vec![RuntimeDependencyDto {
+                id: "whisperCli".into(),
+                status: "missing".into(),
+                kind: "required".into(),
+                path: None,
+                version: None,
+                detail: Some("whisper.dll was not found".into()),
+                repairable: true,
+            }],
+        };
+
+        let error = ensure_repair_succeeded(&health, "whisperCli").unwrap_err();
+
+        assert!(error.contains("Whisper CLI"));
+        assert!(error.contains("missing"));
+        assert!(error.contains("whisper.dll was not found"));
+    }
+
+    #[test]
     fn funasr_runtime_component_uses_official_release_when_supported() {
         let download = funasr_official_download();
         if cfg!(any(

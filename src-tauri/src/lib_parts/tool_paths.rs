@@ -1,6 +1,9 @@
-fn whisper_cli_command() -> PathBuf {
+fn whisper_cli_command_for_app(app_handle: &tauri::AppHandle) -> PathBuf {
     command_env_override("AUDRAFLOW_WHISPER_CLI")
         .or_else(|| command_env_override("FT_WHISPER_CLI"))
+        .or_else(|| {
+            find_runtime_component_tool_for_app(app_handle, "whisper", whisper_cli_binary_name())
+        })
         .or_else(|| find_runtime_component_tool("whisper", whisper_cli_binary_name()))
         .or_else(|| find_bundled_command(whisper_cli_binary_name()))
         .or_else(|| find_dev_or_portable_tool(whisper_cli_binary_name()))
@@ -8,12 +11,15 @@ fn whisper_cli_command() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(whisper_cli_binary_name()))
 }
 
-fn funasr_cli_command() -> PathBuf {
+fn funasr_cli_command_for_app(app_handle: &tauri::AppHandle) -> PathBuf {
     command_env_override("AUDRAFLOW_FUNASR_CLI")
         .or_else(|| command_env_override("FT_FUNASR_CLI"))
+        .or_else(|| {
+            find_runtime_component_tool_for_app(app_handle, "funasr", funasr_cli_binary_name())
+        })
+        .or_else(|| find_runtime_component_tool("funasr", funasr_cli_binary_name()))
         .or_else(|| find_bundled_command(funasr_cli_binary_name()))
         .or_else(|| find_dev_or_portable_tool(funasr_cli_binary_name()))
-        .or_else(|| find_runtime_component_tool("funasr", funasr_cli_binary_name()))
         .or_else(|| find_system_command(funasr_cli_binary_name()))
         .unwrap_or_else(|| PathBuf::from(funasr_cli_binary_name()))
 }

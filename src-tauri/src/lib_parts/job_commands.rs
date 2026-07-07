@@ -261,7 +261,9 @@ async fn cmd_create_job_from_url(
             ),
         );
     }
-    if let Err(error) = preflight_url_import_dependencies(request.url.trim(), skip_start_seconds) {
+    if let Err(error) =
+        preflight_url_import_dependencies(&app_handle, request.url.trim(), skip_start_seconds)
+    {
         emit_job_log(&app_handle, &client_job_id, "error", error.clone());
         emit_job_progress(&app_handle, &client_job_id, "import", 100.0, error.clone());
         return Err(error);

@@ -303,6 +303,7 @@ struct RuntimeRepairResultDto {
     id: String,
     message: String,
     health: RuntimeHealthDto,
+    components: Vec<RuntimeComponentDto>,
 }
 
 #[derive(Clone, Serialize)]

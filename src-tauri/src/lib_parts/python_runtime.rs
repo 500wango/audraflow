@@ -41,7 +41,11 @@ async fn run_runtime_invocation_with_timeout(
     .map_err(|e| format!("Failed to start {label} at {}: {e}", invocation.display))
 }
 
-fn preflight_url_import_dependencies(url: &str, skip_start_seconds: f64) -> Result<(), String> {
+fn preflight_url_import_dependencies(
+    app_handle: &tauri::AppHandle,
+    url: &str,
+    skip_start_seconds: f64,
+) -> Result<(), String> {
     let parsed = reqwest::Url::parse(url).map_err(|e| format!("Invalid URL: {e}"))?;
     match parsed.scheme() {
         "http" | "https" => {}
@@ -50,7 +54,7 @@ fn preflight_url_import_dependencies(url: &str, skip_start_seconds: f64) -> Resu
 
     if skip_start_seconds > 0.0 {
         ensure_runtime_command_available(
-            ffmpeg_command(),
+            ffmpeg_command_for_app(app_handle),
             "FFmpeg",
             "FFmpeg is required when skipping the start of a direct media link. Download the FFmpeg runtime component in Settings or set AUDRAFLOW_FFMPEG_BIN.",
         )?;
@@ -58,7 +62,7 @@ fn preflight_url_import_dependencies(url: &str, skip_start_seconds: f64) -> Resu
 
     if is_probable_platform_url(&parsed) {
         ensure_runtime_command_available(
-            yt_dlp_command(),
+            yt_dlp_command_for_app(app_handle),
             "yt-dlp",
             "This looks like a platform link. Download the yt-dlp runtime component in Settings or set AUDRAFLOW_YT_DLP_BIN before importing it.",
         )?;
@@ -72,19 +76,19 @@ fn preflight_transcription_dependencies(
     asr_engine: &str,
 ) -> Result<(), String> {
     ensure_runtime_command_available(
-        ffmpeg_command(),
+        ffmpeg_command_for_app(app_handle),
         "FFmpeg",
         "FFmpeg is required for local media decoding. Download the FFmpeg runtime component in Settings or set AUDRAFLOW_FFMPEG_BIN.",
     )?;
     ensure_runtime_command_available(
-        ffprobe_command(),
+        ffprobe_command_for_app(app_handle),
         "FFprobe",
         "FFprobe is required for media metadata detection. Download the FFmpeg runtime component in Settings or set AUDRAFLOW_FFPROBE_BIN.",
     )?;
 
     match asr_engine {
         "whisper" => ensure_runtime_command_startable(
-            whisper_cli_command(),
+            whisper_cli_command_for_app(app_handle),
             &["--help"],
             Duration::from_secs(8),
             "Whisper CLI",
@@ -93,7 +97,7 @@ fn preflight_transcription_dependencies(
         "sensevoice" => ensure_sensevoice_python_available(),
         "funasr" => {
             ensure_funasr_cli_startable(
-                funasr_cli_command(),
+                funasr_cli_command_for_app(app_handle),
                 "Fun-ASR transcription requires a runnable llama-funasr-cli. Install the Fun-ASR CLI runtime component, use the Linux package with the bundled CLI, or set AUDRAFLOW_FUNASR_CLI.",
             )?;
             resolve_funasr_model_paths(app_handle).map_err(|error| {

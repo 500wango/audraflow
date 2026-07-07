@@ -255,33 +255,13 @@ fn funasr_model_dirs() -> Vec<PathBuf> {
 }
 
 fn default_app_funasr_model_dir() -> Option<PathBuf> {
-    #[cfg(target_os = "windows")]
-    {
-        std::env::var_os("APPDATA").map(PathBuf::from).map(|dir| {
-            dir.join("com.audraflow.app")
-                .join("models")
-                .join("funasr-nano")
-        })
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        std::env::var_os("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .or_else(|| {
-                std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share"))
-            })
-            .map(|dir| {
-                dir.join("com.audraflow.app")
-                    .join("models")
-                    .join("funasr-nano")
-            })
-    }
+    Some(app_data_dir().join("models").join("funasr-nano"))
 }
 
 pub fn resolve_funasr_cli() -> PathBuf {
     path_env("AUDRAFLOW_FUNASR_CLI")
         .or_else(|| path_env("FT_FUNASR_CLI"))
+        .or_else(|| managed_component_binary("funasr", funasr_cli_binary_name()))
         .or_else(find_bundled_funasr_cli)
         .or_else(|| which::which(funasr_cli_binary_name()).ok())
         .unwrap_or_else(|| PathBuf::from(funasr_cli_binary_name()))
@@ -341,6 +321,52 @@ fn path_env(name: &str) -> Option<PathBuf> {
     std::env::var_os(name)
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
+}
+
+fn managed_component_binary(component_id: &str, file_name: &str) -> Option<PathBuf> {
+    let path = app_data_dir()
+        .join("runtime")
+        .join("components")
+        .join(component_id)
+        .join("bin")
+        .join(platform_binary_name(file_name));
+    path.is_file().then_some(path)
+}
+
+fn platform_binary_name(file_name: &str) -> String {
+    if cfg!(windows) && !file_name.ends_with(".exe") {
+        format!("{file_name}.exe")
+    } else {
+        file_name.to_string()
+    }
+}
+
+fn app_data_dir() -> PathBuf {
+    if let Some(path) = std::env::var_os("AUDRAFLOW_APP_DATA_DIR")
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+    {
+        return path;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return std::env::var_os("APPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("com.audraflow.app");
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share"))
+            })
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("com.audraflow.app")
+    }
 }
 
 fn dedupe_paths(paths: Vec<PathBuf>) -> Vec<PathBuf> {

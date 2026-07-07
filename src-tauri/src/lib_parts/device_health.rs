@@ -62,7 +62,7 @@ async fn runtime_health(app_handle: &tauri::AppHandle) -> RuntimeHealthDto {
         probe_runtime_command(
             "whisperCli",
             "required",
-            whisper_cli_command(),
+            whisper_cli_command_for_app(app_handle),
             &["--help"],
             None,
             5,
@@ -71,7 +71,7 @@ async fn runtime_health(app_handle: &tauri::AppHandle) -> RuntimeHealthDto {
         probe_runtime_command(
             "ffmpeg",
             "required",
-            ffmpeg_command(),
+            ffmpeg_command_for_app(app_handle),
             &["-version"],
             None,
             5,
@@ -80,7 +80,7 @@ async fn runtime_health(app_handle: &tauri::AppHandle) -> RuntimeHealthDto {
         probe_runtime_command(
             "ffprobe",
             "required",
-            ffprobe_command(),
+            ffprobe_command_for_app(app_handle),
             &["-version"],
             None,
             5,
@@ -90,14 +90,14 @@ async fn runtime_health(app_handle: &tauri::AppHandle) -> RuntimeHealthDto {
         probe_runtime_command(
             "ytDlp",
             "optional",
-            yt_dlp_command(),
+            yt_dlp_command_for_app(app_handle),
             &["--version"],
             None,
             5,
         )
         .await,
         probe_demucs().await,
-        probe_funasr_cli().await,
+        probe_funasr_cli(app_handle).await,
         probe_funasr_models(app_handle),
     ];
 

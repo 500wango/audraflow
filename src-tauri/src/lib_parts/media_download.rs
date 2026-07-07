@@ -199,7 +199,7 @@ async fn trim_media_start_if_needed(
         skip_arg.replace('.', "_")
     ));
 
-    let output = tokio::process::Command::new(ffmpeg_command())
+    let output = tokio::process::Command::new(ffmpeg_command_for_app(app_handle))
         .arg("-y")
         .arg("-hide_banner")
         .arg("-loglevel")
@@ -296,7 +296,7 @@ async fn download_platform_media(
     let audio_quality = normalize_audio_quality(audio_quality);
     let skip_arg = format_seconds_arg(skip_start_seconds);
     let output_template = cache_dir.join("media.%(ext)s");
-    let mut command = tokio::process::Command::new(yt_dlp_command());
+    let mut command = tokio::process::Command::new(yt_dlp_command_for_app(app_handle));
     apply_yt_dlp_youtube_compat(&mut command);
     command
         .arg("--no-playlist")
@@ -589,7 +589,7 @@ async fn create_url_preview(
     std::fs::create_dir_all(&cache_dir)
         .map_err(|e| format!("Failed to create preview dir: {e}"))?;
 
-    match create_platform_preview(&cache_dir, url, preview_seconds).await {
+    match create_platform_preview(app_handle, &cache_dir, url, preview_seconds).await {
         Ok(path) => Ok(UrlPreviewResponse {
             file_path: path.to_string_lossy().into_owned(),
             preview_seconds,
@@ -601,7 +601,7 @@ async fn create_url_preview(
         }),
         Err(platform_error) => {
             log::warn!("yt-dlp preview failed, trying ffmpeg: {}", platform_error);
-            match create_direct_preview(&cache_dir, url, preview_seconds).await {
+            match create_direct_preview(app_handle, &cache_dir, url, preview_seconds).await {
                 Ok(path) => Ok(UrlPreviewResponse {
                     file_path: path.to_string_lossy().into_owned(),
                     preview_seconds,
@@ -620,6 +620,7 @@ async fn create_url_preview(
 }
 
 async fn create_platform_preview(
+    app_handle: &tauri::AppHandle,
     cache_dir: &Path,
     url: &str,
     preview_seconds: f64,
@@ -627,7 +628,7 @@ async fn create_platform_preview(
     let output_template = cache_dir.join("preview.%(ext)s");
     let section = format!("*0-{}", format_seconds_arg(preview_seconds));
     let output = tokio::time::timeout(Duration::from_secs(URL_PREVIEW_TIMEOUT_SECS), {
-        let mut command = tokio::process::Command::new(yt_dlp_command());
+        let mut command = tokio::process::Command::new(yt_dlp_command_for_app(app_handle));
         apply_yt_dlp_youtube_compat(&mut command);
         command
             .arg("--no-playlist")
@@ -662,6 +663,7 @@ async fn create_platform_preview(
 }
 
 async fn create_direct_preview(
+    app_handle: &tauri::AppHandle,
     cache_dir: &Path,
     url: &str,
     preview_seconds: f64,
@@ -669,7 +671,7 @@ async fn create_direct_preview(
     let output_path = cache_dir.join("preview.m4a");
     let output = tokio::time::timeout(
         Duration::from_secs(URL_PREVIEW_TIMEOUT_SECS),
-        tokio::process::Command::new(ffmpeg_command())
+        tokio::process::Command::new(ffmpeg_command_for_app(app_handle))
             .arg("-y")
             .arg("-hide_banner")
             .arg("-loglevel")

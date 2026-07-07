@@ -148,9 +148,9 @@ async fn probe_runtime_command(
     }
 }
 
-async fn probe_funasr_cli() -> RuntimeDependencyDto {
+async fn probe_funasr_cli(app_handle: &tauri::AppHandle) -> RuntimeDependencyDto {
     let id = "funasrCli";
-    let program = funasr_cli_command();
+    let program = funasr_cli_command_for_app(app_handle);
     let display_path = command_display_path(&program);
     let mut command = tokio::process::Command::new(&program);
     command.arg("--help");
@@ -347,7 +347,7 @@ async fn repair_runtime_dependency(
         "ffmpeg" | "ffprobe" => install_runtime_component_by_id(&app_handle, "ffmpeg").await?,
         "funasrCli" => {
             let vc_redist_message = repair_vc_redist_if_missing(&app_handle).await?;
-            let command = funasr_cli_command();
+            let command = funasr_cli_command_for_app(&app_handle);
             if funasr_cli_probe_succeeds(&command).await {
                 let ready_message = format!("Fun-ASR CLI is already usable: {}", command.display());
                 if let Some(message) = vc_redist_message {
@@ -388,10 +388,14 @@ async fn repair_runtime_dependency(
         }
     };
 
+    let health = runtime_health(&app_handle).await;
+    ensure_repair_succeeded(&health, normalized)?;
+
     Ok(RuntimeRepairResultDto {
         id: normalized.into(),
         message,
-        health: runtime_health(&app_handle).await,
+        components: runtime_components(&app_handle),
+        health,
     })
 }
 
@@ -402,6 +406,56 @@ async fn repair_vc_redist_if_missing(app_handle: &tauri::AppHandle) -> Result<Op
         install_runtime_component_by_id(app_handle, "vc-redist")
             .await
             .map(Some)
+    }
+}
+
+fn ensure_repair_succeeded(health: &RuntimeHealthDto, id: &str) -> Result<(), String> {
+    let targets = repair_validation_targets(id);
+    for target in targets {
+        let Some(item) = health.items.iter().find(|item| item.id == target) else {
+            return Err(format!("Repair did not return a health item for {target}."));
+        };
+        if item.status != "ready" {
+            return Err(format!(
+                "Repair completed, but {} is still {}. {}",
+                runtime_dependency_label_for_error(&item.id),
+                item.status,
+                item.detail
+                    .as_deref()
+                    .unwrap_or("Refresh runtime diagnostics for details.")
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn repair_validation_targets(id: &str) -> Vec<&'static str> {
+    match id {
+        "ffmpeg" | "ffprobe" => vec!["ffmpeg", "ffprobe"],
+        "vcRedist" => vec!["vcRedist"],
+        "whisperCli" => vec!["whisperCli"],
+        "ytDlp" => vec!["ytDlp"],
+        "funasrCli" => vec!["funasrCli"],
+        "sensevoicePython" => vec!["sensevoicePython"],
+        "demucs" => vec!["demucs"],
+        "defaultWhisperModel" => vec!["defaultWhisperModel"],
+        _ => vec![],
+    }
+}
+
+fn runtime_dependency_label_for_error(id: &str) -> &str {
+    match id {
+        "defaultWhisperModel" => "Whisper model",
+        "vcRedist" => "Microsoft VC++ Runtime",
+        "whisperCli" => "Whisper CLI",
+        "ffmpeg" => "FFmpeg",
+        "ffprobe" => "FFprobe",
+        "sensevoicePython" => "SenseVoice Python packages",
+        "ytDlp" => "yt-dlp",
+        "demucs" => "Demucs",
+        "funasrCli" => "Fun-ASR CLI",
+        "funasrModels" => "Fun-ASR GGUF models",
+        _ => "Runtime dependency",
     }
 }
 
