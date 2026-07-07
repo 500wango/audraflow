@@ -172,15 +172,13 @@ pub(crate) fn funasr_official_asset() -> Option<(&'static str, u64)> {
 }
 
 pub(crate) fn github_release_asset_url(asset_name: &str) -> String {
-    let tag = std::env::var("AUDRAFLOW_COMPONENT_RELEASE_TAG")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
+    let tag = option_env!("AUDRAFLOW_COMPONENT_RELEASE_TAG")
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
         .unwrap_or_else(|| format!("v{}", env!("CARGO_PKG_VERSION")));
-    let base = std::env::var("AUDRAFLOW_COMPONENT_BASE_URL")
-        .ok()
-        .map(|value| value.trim().trim_end_matches('/').to_string())
-        .filter(|value| !value.is_empty())
+    let base = option_env!("AUDRAFLOW_COMPONENT_BASE_URL")
+        .map(|s| s.trim().trim_end_matches('/').to_string())
+        .filter(|s| !s.is_empty())
         .unwrap_or_else(|| {
             let repo = option_env!("AUDRAFLOW_BUILD_REPO").unwrap_or("unknown/audraflow");
             format!("https://github.com/{repo}/releases/download/{tag}")
@@ -686,15 +684,15 @@ pub(crate) async fn download_url_to_path_with_progress(
         .user_agent("AudraFlow/1.0")
         .default_headers({
             let mut headers = reqwest::header::HeaderMap::new();
-            if let Ok(token) = std::env::var("AUDRAFLOW_GITHUB_TOKEN") {
-                let token = token.trim().to_string();
-                if !token.is_empty() {
-                    if let Ok(mut auth) = reqwest::header::HeaderValue::from_str(
-                        &format!("Bearer {token}")
-                    ) {
-                        auth.set_sensitive(true);
-                        headers.insert(reqwest::header::AUTHORIZATION, auth);
-                    }
+            let token = option_env!("AUDRAFLOW_GITHUB_TOKEN")
+                .map(|s| s.trim())
+                .unwrap_or("");
+            if !token.is_empty() {
+                if let Ok(mut auth) = reqwest::header::HeaderValue::from_str(
+                    &format!("Bearer {token}")
+                ) {
+                    auth.set_sensitive(true);
+                    headers.insert(reqwest::header::AUTHORIZATION, auth);
                 }
             }
             headers
