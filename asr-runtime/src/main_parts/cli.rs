@@ -17,7 +17,11 @@ fn cmd_transcribe(args: &[String]) -> anyhow::Result<()> {
             config.extreme_accuracy,
             config.audio_mode,
             config.vocal_separation,
-        )?,
+        ).map_err(|e| {
+            eprintln!("FATAL: {e:#}");
+            std::io::Write::flush(&mut std::io::stderr()).ok();
+            e
+        })?,
         AsrEngine::SenseVoice => {
             match transcribe_file_with_sensevoice_sync(
                 &pipeline,
@@ -42,10 +46,19 @@ fn cmd_transcribe(args: &[String]) -> anyhow::Result<()> {
                     );
                     result
                 }
-                Err(error) => return Err(error),
+                Err(error) => {
+                    eprintln!("FATAL: {error:#}");
+                    std::io::Write::flush(&mut std::io::stderr()).ok();
+                    return Err(error);
+                }
             }
         }
-        AsrEngine::Whisper => transcribe_file_with_whisper_sync(&device_info, &pipeline, &config)?,
+        AsrEngine::Whisper => transcribe_file_with_whisper_sync(&device_info, &pipeline, &config)
+            .map_err(|e| {
+                eprintln!("FATAL: {e:#}");
+                std::io::Write::flush(&mut std::io::stderr()).ok();
+                e
+            })?,
     };
     let output = RuntimeTranscribeOutput {
         segments: result.segments,
