@@ -16,11 +16,21 @@ fn run_whisper_pipeline_pass(
 ) -> anyhow::Result<WhisperPipelinePass> {
     // ── Step 1: Analyze audio metadata ────────────────────────────────────
     log::info!("[1/4] Analyzing {label}: {}", file_path.display());
-    let mut info = pipeline.analyze(file_path, file_hash)?;
+    let mut info = pipeline
+        .analyze(file_path, file_hash)
+        .map_err(|e| {
+            eprintln!("FATAL_ANALYZE: {e:#}");
+            e
+        })?;
 
     // ── Step 2: Decode to 16kHz mono WAV ──────────────────────────────────
     log::info!("[2/4] Decoding {label}...");
-    let wav_path = pipeline.decode_to_wav(file_path)?;
+    let wav_path = pipeline
+        .decode_to_wav(file_path)
+        .map_err(|e| {
+            eprintln!("FATAL_DECODE: {e:#}");
+            e
+        })?;
 
     // ── Step 3: VAD + chunking ────────────────────────────────────────────
     log::info!("[3/4] Chunking {label}...");
