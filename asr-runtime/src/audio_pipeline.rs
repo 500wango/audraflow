@@ -403,6 +403,10 @@ impl AudioPipeline {
             ])
             .output()
             .context("Failed to run ffmpeg for SNR analysis")?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("ffmpeg SNR analysis failed: {}\n\nFile: {}", stderr.trim(), file_path.display());
+        }
 
         let stderr = String::from_utf8_lossy(&output.stderr);
 
