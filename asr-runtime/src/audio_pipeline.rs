@@ -305,6 +305,10 @@ impl AudioPipeline {
             .arg(file_path)
             .output()
             .context("Failed to run ffprobe")?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("ffprobe probe_duration failed: {}\n\nFile: {}", stderr.trim(), file_path.display());
+        }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let duration: f64 = stdout.trim().parse().unwrap_or(0.0);
@@ -326,6 +330,10 @@ impl AudioPipeline {
             .arg(file_path)
             .output()
             .context("Failed to probe sample rate")?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("ffprobe probe_sample_rate failed: {}\n\nFile: {}", stderr.trim(), file_path.display());
+        }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         Ok(stdout.trim().parse().unwrap_or(16000))
@@ -346,6 +354,10 @@ impl AudioPipeline {
             .arg(file_path)
             .output()
             .context("Failed to probe channels")?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("ffprobe probe_channels failed: {}\n\nFile: {}", stderr.trim(), file_path.display());
+        }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         Ok(stdout.trim().parse().unwrap_or(2))
@@ -366,6 +378,10 @@ impl AudioPipeline {
             .arg(file_path)
             .output()
             .context("Failed to probe codec")?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("ffprobe probe_codec failed: {}\n\nFile: {}", stderr.trim(), file_path.display());
+        }
 
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     }
