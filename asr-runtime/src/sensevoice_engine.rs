@@ -49,13 +49,10 @@ try:
     model = AutoModel(**model_kwargs)
 
     segments = []
-    for chunk in chunks:
-        path = chunk["path"]
-        chunk_index = int(chunk["index"])
-        chunk_start = int(chunk["startMs"])
-        chunk_end = int(chunk["endMs"])
+    if chunks:
+        paths = [chunk["path"] for chunk in chunks]
         generate_kwargs = {
-            "input": path,
+            "input": paths,
             "cache": {},
             "language": language,
             "use_itn": True,
@@ -64,36 +61,47 @@ try:
         if internal_vad:
             generate_kwargs["merge_vad"] = True
             generate_kwargs["merge_length_s"] = 15
-        result = model.generate(**generate_kwargs)
-        if not result:
-            continue
-        item = result[0]
-        sentence_info = item.get("sentence_info") or []
-        if sentence_info:
-            for sentence_index, sentence in enumerate(sentence_info):
-                text = sentence.get("text") or ""
-                text = rich_transcription_postprocess(text).strip()
-                if not text:
-                    continue
-                start = int(sentence.get("start", 0))
-                end = int(sentence.get("end", max(0, chunk_end - chunk_start)))
+        results = model.generate(**generate_kwargs)
+        if not isinstance(results, list):
+            results = [results]
+
+        for i, item in enumerate(results):
+            if i >= len(chunks):
+                break
+            chunk = chunks[i]
+            chunk_index = int(chunk["index"])
+            chunk_start = int(chunk["startMs"])
+            chunk_end = int(chunk["endMs"])
+
+            if not item:
+                continue
+
+            sentence_info = item.get("sentence_info") or []
+            if sentence_info:
+                for sentence_index, sentence in enumerate(sentence_info):
+                    text = sentence.get("text") or ""
+                    text = rich_transcription_postprocess(text).strip()
+                    if not text:
+                        continue
+                    start = int(sentence.get("start", 0))
+                    end = int(sentence.get("end", max(0, chunk_end - chunk_start)))
+                    segments.append({
+                        "segmentId": f"sense{chunk_index:04}-sent{sentence_index:04}",
+                        "startMs": chunk_start + max(0, start),
+                        "endMs": chunk_start + max(max(0, start), end),
+                        "text": text,
+                    })
+                continue
+
+            text = item.get("text") or ""
+            text = rich_transcription_postprocess(text).strip()
+            if text:
                 segments.append({
-                    "segmentId": f"sense{chunk_index:04}-sent{sentence_index:04}",
-                    "startMs": chunk_start + max(0, start),
-                    "endMs": chunk_start + max(max(0, start), end),
+                    "segmentId": f"sense{chunk_index:04}-seg0000",
+                    "startMs": chunk_start,
+                    "endMs": chunk_end,
                     "text": text,
                 })
-            continue
-
-        text = item.get("text") or ""
-        text = rich_transcription_postprocess(text).strip()
-        if text:
-            segments.append({
-                "segmentId": f"sense{chunk_index:04}-seg0000",
-                "startMs": chunk_start,
-                "endMs": chunk_end,
-                "text": text,
-            })
 
     print(PREFIX + json.dumps({"segments": segments}, ensure_ascii=False))
 except Exception as exc:

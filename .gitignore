@@ -12,6 +12,8 @@ dist
 dist-ssr
 target
 src-tauri/binaries
+src-tauri/windows-runtime/*.dll
+src-tauri/windows-runtime/*.exe
 release
 *.local
 

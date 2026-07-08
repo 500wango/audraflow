@@ -565,6 +565,14 @@ pub(crate) fn start_orchestrator(app_handle: &tauri::AppHandle) {
     if let Ok(app_data_dir) = app_handle.path().app_data_dir() {
         command.env("AUDRAFLOW_APP_DATA_DIR", app_data_dir);
     }
+    if std::env::var_os("AUDRAFLOW_WHISPER_THREADS").is_none() {
+        command.env("AUDRAFLOW_WHISPER_THREADS", "4");
+    }
+    if std::env::var_os("AUDRAFLOW_MAX_CONCURRENT_CHUNKS").is_none() {
+        let cores = num_cpus::get();
+        let concurrency = std::cmp::max(1, cores / 4);
+        command.env("AUDRAFLOW_MAX_CONCURRENT_CHUNKS", concurrency.to_string());
+    }
 
     #[cfg(target_os = "windows")]
     {
@@ -639,6 +647,14 @@ pub(crate) fn start_orchestrator(app_handle: &tauri::AppHandle) {
     }
     if let Ok(app_data_dir) = app_handle.path().app_data_dir() {
         command.env("AUDRAFLOW_APP_DATA_DIR", app_data_dir);
+    }
+    if std::env::var_os("AUDRAFLOW_WHISPER_THREADS").is_none() {
+        command.env("AUDRAFLOW_WHISPER_THREADS", "4");
+    }
+    if std::env::var_os("AUDRAFLOW_MAX_CONCURRENT_CHUNKS").is_none() {
+        let cores = num_cpus::get();
+        let concurrency = std::cmp::max(1, cores / 4);
+        command.env("AUDRAFLOW_MAX_CONCURRENT_CHUNKS", concurrency.to_string());
     }
 
     match command.spawn() {

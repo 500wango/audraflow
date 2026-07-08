@@ -19,12 +19,13 @@ pub struct DeviceInfo {
 /// The Whisper ASR engine.
 #[allow(dead_code)]
 pub struct WhisperEngine {
-    device: DeviceInfo,
+    pub device: DeviceInfo,
     model_path: Option<PathBuf>,
     whisper_cli: PathBuf,
     language: String,
     lyrics_mode: bool,
     suppress_regex_supported: bool,
+    pub threads: u32,
 }
 
 impl WhisperEngine {
@@ -32,6 +33,10 @@ impl WhisperEngine {
     pub fn new(device: &DeviceInfo) -> anyhow::Result<Self> {
         let whisper_cli = resolve_whisper_cli(None);
         let suppress_regex_supported = supports_suppress_regex(&whisper_cli);
+        let threads = std::env::var("AUDRAFLOW_WHISPER_THREADS")
+            .ok()
+            .and_then(|s| s.trim().parse().ok())
+            .unwrap_or(4);
         Ok(Self {
             device: device.clone(),
             model_path: None,
@@ -39,6 +44,7 @@ impl WhisperEngine {
             language: "zh".into(),
             lyrics_mode: false,
             suppress_regex_supported,
+            threads,
         })
     }
 
@@ -67,6 +73,12 @@ impl WhisperEngine {
         self
     }
 
+    /// Set the thread count.
+    pub fn with_threads(mut self, threads: u32) -> Self {
+        self.threads = threads;
+        self
+    }
+
     /// Transcribe an audio file and return time-stamped segments.
     ///
     /// For Alpha-0 MVP, this calls the whisper.cpp CLI as a subprocess.
@@ -91,6 +103,8 @@ impl WhisperEngine {
             .arg(&output_prefix)
             .arg("-l")
             .arg(&self.language)
+            .arg("-t")
+            .arg(self.threads.to_string())
             .arg("--print-progress")
             .arg("false");
 
@@ -188,6 +202,33 @@ fn command_in_binary_dir(program: &Path) -> Command {
     let mut command = Command::new(program);
     if let Some(parent) = program.parent().filter(|path| !path.as_os_str().is_empty()) {
         command.current_dir(parent);
+
+        // Shared libraries (libwhisper.so, libggml.so on Linux; whisper.dll,
+        // ggml.dll on Windows) are co-located with the binary.  Ensure the
+        // dynamic linker can discover them at runtime.
+        #[cfg(target_os = "linux")]
+        {
+            let mut ld_path = std::ffi::OsString::from(parent);
+            if let Some(existing) = std::env::var_os("LD_LIBRARY_PATH") {
+                if !existing.is_empty() {
+                    ld_path.push(":");
+                    ld_path.push(existing);
+                }
+            }
+            command.env("LD_LIBRARY_PATH", ld_path);
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            let mut new_path = std::ffi::OsString::from(parent);
+            if let Some(existing) = std::env::var_os("PATH") {
+                if !existing.is_empty() {
+                    new_path.push(";");
+                    new_path.push(existing);
+                }
+            }
+            command.env("PATH", new_path);
+        }
     }
     command
 }

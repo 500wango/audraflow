@@ -39,6 +39,25 @@
   SetRegView lastused
 !macroend
 
+; ── Pre-install bundled whisper runtime to managed component path ──────
+; This eliminates the need to download the whisper runtime after install,
+; which previously failed because the GitHub release asset URL was invalid.
+!macro AUDRAFLOW_PREINSTALL_WHISPER_RUNTIME
+  ${If} ${FileExists} "$INSTDIR\windows-runtime\whisper-cli.exe"
+    DetailPrint "Pre-installing bundled Whisper runtime component..."
+    CreateDirectory "$APPDATA\com.audraflow.app\runtime\components\whisper\bin"
+    CopyFiles /SILENT "$INSTDIR\windows-runtime\whisper-cli.exe" "$APPDATA\com.audraflow.app\runtime\components\whisper\bin\whisper-cli.exe"
+    CopyFiles /SILENT "$INSTDIR\windows-runtime\whisper.dll" "$APPDATA\com.audraflow.app\runtime\components\whisper\bin\whisper.dll"
+    CopyFiles /SILENT "$INSTDIR\windows-runtime\ggml.dll" "$APPDATA\com.audraflow.app\runtime\components\whisper\bin\ggml.dll"
+    CopyFiles /SILENT "$INSTDIR\windows-runtime\ggml-base.dll" "$APPDATA\com.audraflow.app\runtime\components\whisper\bin\ggml-base.dll"
+    CopyFiles /SILENT "$INSTDIR\windows-runtime\ggml-cpu.dll" "$APPDATA\com.audraflow.app\runtime\components\whisper\bin\ggml-cpu.dll"
+    DetailPrint "Whisper runtime component pre-installed."
+  ${Else}
+    DetailPrint "Bundled Whisper runtime not found; install from Settings after launch."
+  ${EndIf}
+!macroend
+
 !macro NSIS_HOOK_POSTINSTALL
   !insertmacro AUDRAFLOW_INSTALL_VC_REDIST_X64
+  !insertmacro AUDRAFLOW_PREINSTALL_WHISPER_RUNTIME
 !macroend

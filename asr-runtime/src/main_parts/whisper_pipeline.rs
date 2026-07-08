@@ -56,9 +56,57 @@ fn run_whisper_pipeline_pass(
     log::info!("[4/4] Transcribing {label}: {} chunks...", chunks.len());
     let mut all_segments: Vec<Segment> = Vec::new();
 
-    for chunk in &chunks {
-        let chunk_segments = engine.transcribe(&chunk.wav_path)?;
-        append_chunk_segments(&mut all_segments, chunk, chunk_segments);
+    let concurrency = std::env::var("AUDRAFLOW_MAX_CONCURRENT_CHUNKS")
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or_else(|| {
+            let cores = engine.device.cpu_cores;
+            let threads = engine.threads;
+            std::cmp::max(1, cores / threads)
+        }) as usize;
+
+    log::info!("Transcribing chunks with concurrency={}", concurrency);
+
+    if concurrency <= 1 || chunks.len() <= 1 {
+        for chunk in &chunks {
+            let chunk_segments = engine.transcribe(&chunk.wav_path)?;
+            append_chunk_segments(&mut all_segments, chunk, chunk_segments);
+        }
+    } else {
+        let queue = std::sync::Mutex::new(
+            chunks.iter().enumerate().collect::<std::collections::VecDeque<_>>()
+        );
+        let results_shared = std::sync::Mutex::new(Vec::with_capacity(chunks.len()));
+
+        std::thread::scope(|s| {
+            for _ in 0..concurrency {
+                s.spawn(|| {
+                    loop {
+                        let next_chunk = {
+                            let mut q = queue.lock().unwrap();
+                            q.pop_front()
+                        };
+                        let Some((index, chunk)) = next_chunk else {
+                            break;
+                        };
+
+                        let chunk_result = engine.transcribe(&chunk.wav_path);
+
+                        let mut res = results_shared.lock().unwrap();
+                        res.push((index, chunk_result));
+                    }
+                });
+            }
+        });
+
+        let mut results_vec = results_shared.into_inner().unwrap();
+        results_vec.sort_by_key(|(index, _)| *index);
+
+        for (index, chunk_result) in results_vec {
+            let chunk_segments = chunk_result?;
+            let chunk = &chunks[index];
+            append_chunk_segments(&mut all_segments, chunk, chunk_segments);
+        }
     }
 
     // Sort by start time

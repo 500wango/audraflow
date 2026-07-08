@@ -189,6 +189,14 @@ async function stageExternalTool({ bundleName, sources }) {
   const destination = join(binariesDir, `${bundleName}-${targetTriple}${extension}`);
   await copyFile(source, destination);
   console.log(`staged ${destination}`);
+
+  // For Linux shared libraries (.so), copy them without target triple suffix
+  // so that whisper-cli can find them during development/run.
+  if (bundleName.includes('.so')) {
+    const devDestination = join(binariesDir, bundleName);
+    await copyFile(source, devDestination);
+    console.log(`staged library for development: ${devDestination}`);
+  }
 }
 
 async function stageOptionalExternalTool(tool) {
@@ -201,6 +209,14 @@ async function stageOptionalExternalTool(tool) {
   const destination = join(binariesDir, `${tool.bundleName}-${targetTriple}${extension}`);
   await copyFile(source, destination);
   console.log(`staged ${destination}`);
+
+  // For Linux shared libraries (.so), copy them without target triple suffix
+  // so that whisper-cli can find them during development/run.
+  if (tool.bundleName.includes('.so')) {
+    const devDestination = join(binariesDir, tool.bundleName);
+    await copyFile(source, devDestination);
+    console.log(`staged library for development: ${devDestination}`);
+  }
 }
 
 async function clearStagedTargetBinaries() {
@@ -246,16 +262,94 @@ if (targetTriple.includes('linux')) {
     }
   }
 } else if (targetTriple.includes('windows')) {
-  for (const tool of [
+  const windowsToolSources = [
     {
       bundleName: 'audraflow-whisper-cli',
       sources: [
+        join(workspaceRoot, 'release', 'windows-portable', 'AudraFlow', 'bin', 'whisper-cli.exe'),
         join(workspaceRoot, 'external', 'whisper.cpp', 'build', 'bin', 'Release', 'whisper-cli.exe'),
         join(workspaceRoot, 'external', 'whisper.cpp', 'build', 'bin', 'whisper-cli.exe'),
       ],
     },
-  ]) {
-    await stageExternalTool(tool);
+    {
+      bundleName: 'audraflow-ffmpeg',
+      sources: [
+        join(workspaceRoot, 'release', 'windows-portable', 'AudraFlow', 'bin', 'ffmpeg.exe'),
+        join(workspaceRoot, 'external', 'ffmpeg', 'bin', 'ffmpeg.exe'),
+      ],
+    },
+    {
+      bundleName: 'audraflow-ffprobe',
+      sources: [
+        join(workspaceRoot, 'release', 'windows-portable', 'AudraFlow', 'bin', 'ffprobe.exe'),
+        join(workspaceRoot, 'external', 'ffmpeg', 'bin', 'ffprobe.exe'),
+      ],
+    },
+    {
+      bundleName: 'audraflow-yt-dlp',
+      optional: true,
+      sources: [
+        join(workspaceRoot, 'release', 'windows-portable', 'AudraFlow', 'bin', 'yt-dlp.exe'),
+        join(workspaceRoot, 'external', 'yt-dlp', 'yt-dlp.exe'),
+      ],
+    },
+  ];
+
+  // Whisper DLLs that whisper-cli.exe depends on at runtime.
+  const windowsWhisperDlls = [
+    { name: 'whisper.dll', sources: [
+        join(workspaceRoot, 'release', 'windows-portable', 'AudraFlow', 'bin', 'whisper.dll'),
+        join(workspaceRoot, 'external', 'whisper.cpp', 'build', 'bin', 'Release', 'whisper.dll'),
+        join(workspaceRoot, 'external', 'whisper.cpp', 'build', 'bin', 'whisper.dll'),
+      ] },
+    { name: 'ggml.dll', sources: [
+        join(workspaceRoot, 'release', 'windows-portable', 'AudraFlow', 'bin', 'ggml.dll'),
+        join(workspaceRoot, 'external', 'whisper.cpp', 'build', 'bin', 'Release', 'ggml.dll'),
+        join(workspaceRoot, 'external', 'whisper.cpp', 'build', 'bin', 'ggml.dll'),
+      ] },
+    { name: 'ggml-base.dll', sources: [
+        join(workspaceRoot, 'release', 'windows-portable', 'AudraFlow', 'bin', 'ggml-base.dll'),
+        join(workspaceRoot, 'external', 'whisper.cpp', 'build', 'bin', 'Release', 'ggml-base.dll'),
+        join(workspaceRoot, 'external', 'whisper.cpp', 'build', 'bin', 'ggml-base.dll'),
+      ] },
+    { name: 'ggml-cpu.dll', sources: [
+        join(workspaceRoot, 'release', 'windows-portable', 'AudraFlow', 'bin', 'ggml-cpu.dll'),
+        join(workspaceRoot, 'external', 'whisper.cpp', 'build', 'bin', 'Release', 'ggml-cpu.dll'),
+        join(workspaceRoot, 'external', 'whisper.cpp', 'build', 'bin', 'ggml-cpu.dll'),
+      ] },
+  ];
+
+  for (const tool of windowsToolSources) {
+    if (tool.optional) {
+      await stageOptionalExternalTool(tool);
+    } else {
+      await stageExternalTool(tool);
+    }
+  }
+
+  // Stage whisper DLLs to windows-runtime/ for NSIS pre-installation
+  // into the managed runtime component directory.
+  const whisperRuntimeDir = join(workspaceRoot, 'src-tauri', 'windows-runtime');
+  await mkdir(whisperRuntimeDir, { recursive: true });
+  let dllsStaged = 0;
+  for (const dll of windowsWhisperDlls) {
+    const source = await findExistingFile(dll.sources);
+    if (source) {
+      const dest = join(whisperRuntimeDir, dll.name);
+      await copyFile(source, dest);
+      console.log(`staged whisper DLL ${dest}`);
+      dllsStaged++;
+    } else {
+      console.log(`skipped whisper DLL (not found): ${dll.name}`);
+    }
+  }
+  // Also copy whisper-cli.exe to windows-runtime/ for the NSIS pre-install
+  if (dllsStaged > 0) {
+    const whisperCliSource = await findExistingFile(windowsToolSources[0].sources);
+    if (whisperCliSource) {
+      await copyFile(whisperCliSource, join(whisperRuntimeDir, 'whisper-cli.exe'));
+      console.log(`staged whisper-cli.exe to windows-runtime/`);
+    }
   }
 } else if (isMacosTarget) {
   for (const tool of macosToolSources) {

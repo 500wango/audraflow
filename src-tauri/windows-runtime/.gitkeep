@@ -1,0 +1,3 @@
+This directory is populated at build time by scripts/stage-sidecars.mjs.
+It contains whisper-cli.exe and DLLs (whisper.dll, ggml*.dll) that the
+NSIS installer pre-installs to the managed runtime component directory.
