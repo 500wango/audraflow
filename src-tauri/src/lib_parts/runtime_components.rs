@@ -100,8 +100,10 @@ pub(crate) fn runtime_component_specs() -> Vec<RuntimeComponentSpec> {
         kind: "optional",
         env_url: "AUDRAFLOW_COMPONENT_YT_DLP_URL",
         default_url: Some(yt_dlp_download_url().into()),
+        // Official Windows yt-dlp.exe is ~17MB; keep a conservative floor so truncated
+        // GitHub/proxy responses cannot pass verification.
         download_size_bytes: 18 * 1024 * 1024,
-        min_download_bytes: 1024 * 1024,
+        min_download_bytes: 8 * 1024 * 1024,
         required_files: yt_dlp_component_required_files(),
         source_kind: RuntimeComponentSourceKind::SingleFile {
             file_name: yt_dlp_binary_name(),
@@ -315,11 +317,15 @@ pub(crate) fn runtime_component_status(
         return vc_redist_component_status(spec);
     }
 
+    // Heal installs that downloaded successfully but failed to promote out of staging.
+    let _ = recover_orphaned_component_install(app_handle, spec);
+
     let component_dir = runtime_component_dir_for_app(app_handle, spec.id)
         .unwrap_or_else(|_| runtime_component_dir(spec.id));
     let bin_dir = component_dir.join("bin");
     let mut missing = Vec::new();
     let mut too_small = Vec::new();
+    let mut invalid = Vec::new();
     for file in spec.required_files {
         let path = bin_dir.join(file);
         if !path.is_file() {
@@ -329,31 +335,52 @@ pub(crate) fn runtime_component_status(
         let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
         if size < 64 {
             too_small.push(format!("{file} ({size} B)"));
+            continue;
+        }
+        if let Err(error) = validate_component_binary_file(spec, &path) {
+            invalid.push(error);
         }
     }
     let installed_size_bytes = directory_size_bytes(&component_dir).unwrap_or(0);
     let download_url = runtime_component_download_url(spec);
-    let (status, detail) = if missing.is_empty() && too_small.is_empty() {
+    let (status, detail) = if missing.is_empty() && too_small.is_empty() && invalid.is_empty() {
         (
             "ready".to_string(),
             Some(format!("Installed in {}", component_dir.display())),
         )
     } else if !missing.is_empty() {
+        let orphan = runtime_components_root_for_app(app_handle)
+            .ok()
+            .map(|root| root.join(format!(".{}.installing", spec.id)))
+            .filter(|path| path.exists());
+        let orphan_note = orphan
+            .map(|path| format!(" Orphaned staging dir exists at {}.", path.display()))
+            .unwrap_or_default();
         (
             "missing".to_string(),
             Some(format!(
-                "Missing file(s) under {}: {}",
+                "Missing file(s) under {}: {}.{}",
                 bin_dir.display(),
-                missing.join(", ")
+                missing.join(", "),
+                orphan_note
             )),
         )
-    } else {
+    } else if !too_small.is_empty() {
         (
             "missing".to_string(),
             Some(format!(
                 "Installed files look incomplete under {}: {}",
                 bin_dir.display(),
                 too_small.join(", ")
+            )),
+        )
+    } else {
+        (
+            "missing".to_string(),
+            Some(format!(
+                "Installed files are invalid under {}: {}",
+                bin_dir.display(),
+                invalid.join("; ")
             )),
         )
     };
@@ -728,20 +755,17 @@ pub(crate) async fn install_runtime_component(
         })?;
     for file_name in spec.required_files {
         let path = staging_bin_dir.join(file_name);
+        // Validate PE/ELF magic before promotion so truncated downloads fail loudly.
+        validate_component_binary_file(spec, &path)?;
         unblock_windows_file(&path);
         mark_executable(&path)?;
     }
 
-    // Smoke-test CLI components before promoting staging → live so UI does not
-    // report "Installed" while the binary still cannot start.
-    emit_runtime_component_progress(app_handle, spec.id, 0, 0, "Smoke-testing installed tools...");
-    smoke_test_installed_component(spec, &staging_bin_dir)
-        .await
-        .map_err(|e| {
-            emit_runtime_component_progress(app_handle, spec.id, 0, 0, format!("Smoke test failed: {e}"));
-            e
-        })?;
-
+    // IMPORTANT: promote staging → live BEFORE smoke-testing.
+    // Running the exe from staging (previous order) can leave Windows/AV file locks
+    // that make rename/copy of the staging tree fail. The live path then stays empty
+    // and the UI shows "missing" even though the download finished.
+    emit_runtime_component_progress(app_handle, spec.id, 0, 0, "Activating component files...");
     activate_component_directory(&staging_dir, &component_dir)
         .await
         .map_err(|e| {
@@ -754,6 +778,34 @@ pub(crate) async fn install_runtime_component(
             );
             e
         })?;
+
+    let live_bin_dir = component_dir.join("bin");
+    verify_component_files(spec, &live_bin_dir).map_err(|e| {
+        format!(
+            "{} appeared to install, but verification of the live path failed: {e}. Look for leftover files under {}",
+            spec.id,
+            root.join(format!(".{}.installing", spec.id)).display()
+        )
+    })?;
+
+    for file_name in spec.required_files {
+        unblock_windows_file(&live_bin_dir.join(file_name));
+    }
+
+    emit_runtime_component_progress(app_handle, spec.id, 0, 0, "Smoke-testing installed tools...");
+    if let Err(error) = smoke_test_installed_component(spec, &live_bin_dir).await {
+        // Roll back a broken install so status does not flip between ready/missing.
+        let _ = tokio::fs::remove_dir_all(&component_dir).await;
+        emit_runtime_component_progress(
+            app_handle,
+            spec.id,
+            0,
+            0,
+            format!("Smoke test failed: {error}"),
+        );
+        return Err(error);
+    }
+
     let _ = tokio::fs::remove_file(&download_path).await;
     emit_runtime_component_progress(
         app_handle,
@@ -763,13 +815,17 @@ pub(crate) async fn install_runtime_component(
         "Installed",
     );
 
-    // Re-check live path so status cannot report missing after a partial move.
-    verify_component_files(spec, &component_dir.join("bin")).map_err(|e| {
-        format!(
-            "{} appeared to install, but verification of the live path failed: {e}",
-            spec.id
-        )
-    })?;
+    // Final guard: the same status path the UI uses must report ready.
+    let status = runtime_component_status(app_handle, spec);
+    if status.status != "ready" {
+        return Err(format!(
+            "{} files were written but status is still '{}': {}. Expected files under {}",
+            spec.id,
+            status.status,
+            status.detail.unwrap_or_else(|| "no detail".into()),
+            live_bin_dir.display()
+        ));
+    }
 
     Ok(format!(
         "{} runtime component installed in {}.",
@@ -1061,7 +1117,16 @@ pub(crate) async fn download_url_to_path_with_progress(
             .map_err(|e| format!("Failed to create runtime download directory: {e}"))?;
     }
 
-    let tmp_path = destination.with_extension("tmp");
+    // Do NOT use Path::with_extension here: for "yt-dlp.download" it becomes
+    // "yt-dlp.tmp", which is fine, but keep an explicit unique suffix so multi-dot
+    // component ids never collide with unrelated files.
+    let tmp_path = destination.with_file_name(format!(
+        "{}.part",
+        destination
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("component.download")
+    ));
     let _ = tokio::fs::remove_file(&tmp_path).await;
     // Token must come from runtime env only — never option_env! — so release
     // binaries cannot embed CI secrets baked in at compile time.
@@ -1069,9 +1134,12 @@ pub(crate) async fn download_url_to_path_with_progress(
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
+    // yt-dlp.exe alone is ~17MB from GitHub. A 30s whole-request timeout is too
+    // short on many networks and produces truncated downloads that later look
+    // like "download finished but still missing".
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(15 * 60))
+        .connect_timeout(Duration::from_secs(30))
         .user_agent("AudraFlow/1.0")
         .default_headers({
             let mut headers = reqwest::header::HeaderMap::new();
@@ -1319,16 +1387,141 @@ pub(crate) fn verify_component_files(spec: &RuntimeComponentSpec, bin_dir: &Path
         let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
         if size < 64 {
             problems.push(format!("{file} is only {size} bytes"));
+            continue;
+        }
+        if let Err(error) = validate_component_binary_file(spec, &path) {
+            problems.push(error);
         }
     }
     if problems.is_empty() {
         Ok(())
     } else {
+        let listing = list_dir_names(bin_dir).unwrap_or_else(|_| "(unreadable)".into());
         Err(format!(
-            "Runtime component {} failed verification in {}: {}",
+            "Runtime component {} failed verification in {}: {}. Directory contains: {}",
             spec.id,
             bin_dir.display(),
-            problems.join("; ")
+            problems.join("; "),
+            listing
         ))
+    }
+}
+
+/// Reject truncated/HTML downloads before they are promoted into the live component path.
+pub(crate) fn validate_component_binary_file(
+    spec: &RuntimeComponentSpec,
+    path: &Path,
+) -> Result<(), String> {
+    use std::io::Read;
+
+    let mut file = std::fs::File::open(path)
+        .map_err(|e| format!("Failed to open {}: {e}", path.display()))?;
+    let mut header = [0_u8; 4];
+    let len = file
+        .read(&mut header)
+        .map_err(|e| format!("Failed to read {}: {e}", path.display()))?;
+    if len < 2 {
+        return Err(format!("{} is too small to be an executable", path.display()));
+    }
+
+    // Windows PE begins with "MZ". Unix ELF begins with 0x7F ELF.
+    let is_pe = header[0] == b'M' && header[1] == b'Z';
+    let is_elf = len >= 4 && header == [0x7f, b'E', b'L', b'F'];
+    let is_mach_o = len >= 4
+        && matches!(
+            header,
+            [0xfe, 0xed, 0xfa, 0xce]
+                | [0xce, 0xfa, 0xed, 0xfe]
+                | [0xfe, 0xed, 0xfa, 0xcf]
+                | [0xcf, 0xfa, 0xed, 0xfe]
+                | [0xca, 0xfe, 0xba, 0xbe]
+        );
+
+    let expect_windows = cfg!(windows)
+        && matches!(spec.id, "yt-dlp" | "funasr" | "whisper" | "ffmpeg" | "vc-redist");
+    if expect_windows && !is_pe {
+        return Err(format!(
+            "{} is not a Windows PE executable (missing MZ header). The download was likely truncated or replaced by an HTML error page.",
+            path.display()
+        ));
+    }
+    if cfg!(target_os = "linux") && matches!(spec.id, "yt-dlp" | "funasr") && !is_elf {
+        return Err(format!(
+            "{} is not a Linux ELF executable. The download was likely truncated or invalid.",
+            path.display()
+        ));
+    }
+    if cfg!(target_os = "macos") && matches!(spec.id, "yt-dlp" | "funasr") && !(is_mach_o || is_elf)
+    {
+        return Err(format!(
+            "{} does not look like a macOS binary. The download was likely truncated or invalid.",
+            path.display()
+        ));
+    }
+
+    let _ = (is_pe, is_elf, is_mach_o);
+    Ok(())
+}
+
+pub(crate) fn list_dir_names(path: &Path) -> Result<String, String> {
+    if !path.exists() {
+        return Ok("(missing)".into());
+    }
+    let mut names = std::fs::read_dir(path)
+        .map_err(|e| e.to_string())?
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    names.sort();
+    if names.is_empty() {
+        Ok("(empty)".into())
+    } else {
+        Ok(names.join(", "))
+    }
+}
+
+/// Promote a leftover `.id.installing` tree if a previous install downloaded files
+/// but failed while activating them (common when AV locks the staged exe).
+pub(crate) fn recover_orphaned_component_install(
+    app_handle: &tauri::AppHandle,
+    spec: &RuntimeComponentSpec,
+) -> bool {
+    let Ok(root) = runtime_components_root_for_app(app_handle) else {
+        return false;
+    };
+    let live = root.join(spec.id);
+    let live_bin = live.join("bin");
+    if verify_component_files(spec, &live_bin).is_ok() {
+        return false;
+    }
+    let staging = root.join(format!(".{}.installing", spec.id));
+    let staging_bin = staging.join("bin");
+    if verify_component_files(spec, &staging_bin).is_err() {
+        return false;
+    }
+    let _ = std::fs::remove_dir_all(&live);
+    match std::fs::rename(&staging, &live) {
+        Ok(()) => {
+            log::info!(
+                "Recovered orphaned {} install from {}",
+                spec.id,
+                staging.display()
+            );
+            true
+        }
+        Err(error) => {
+            log::warn!(
+                "Failed to recover orphaned {} install from {}: {error}",
+                spec.id,
+                staging.display()
+            );
+            if copy_dir_recursive(&staging, &live).is_ok() {
+                let _ = std::fs::remove_dir_all(&staging);
+                log::info!("Recovered orphaned {} install via copy", spec.id);
+                true
+            } else {
+                false
+            }
+        }
     }
 }

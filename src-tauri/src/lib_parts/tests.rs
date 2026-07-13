@@ -74,6 +74,50 @@ mod tests {
     }
 
     #[test]
+    fn component_binary_validation_rejects_html_and_accepts_pe_header() {
+        let root = std::env::temp_dir().join(format!("audraflow-bin-check-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let html_path = root.join("yt-dlp.exe");
+        std::fs::write(&html_path, b"<!DOCTYPE html><html>not a binary</html>").unwrap();
+
+        let yt_spec = RuntimeComponentSpec {
+            id: "yt-dlp",
+            kind: "optional",
+            env_url: "AUDRAFLOW_COMPONENT_YT_DLP_URL",
+            default_url: None,
+            download_size_bytes: 1,
+            min_download_bytes: 1,
+            required_files: &["yt-dlp.exe"],
+            source_kind: RuntimeComponentSourceKind::SingleFile {
+                file_name: "yt-dlp.exe",
+            },
+        };
+
+        #[cfg(windows)]
+        {
+            let err = validate_component_binary_file(&yt_spec, &html_path).unwrap_err();
+            assert!(err.contains("Windows PE") || err.contains("MZ"), "{err}");
+
+            let pe_path = root.join("good.exe");
+            std::fs::write(&pe_path, b"MZ\0\0fake-pe-header-content-for-test").unwrap();
+            validate_component_binary_file(&yt_spec, &pe_path).unwrap();
+        }
+
+        #[cfg(not(windows))]
+        {
+            // On non-Windows hosts the Windows PE check is skipped for this helper when
+            // expect_windows is false for the compile target; still ensure HTML is not ELF.
+            let err = validate_component_binary_file(&yt_spec, &html_path);
+            // yt-dlp on Linux expects ELF; HTML should fail.
+            if cfg!(target_os = "linux") {
+                assert!(err.is_err(), "HTML must not pass Linux ELF validation");
+            }
+        }
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn repair_validation_accepts_ready_target() {
         let health = RuntimeHealthDto {
             generated_at_ms: 0,

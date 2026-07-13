@@ -66,6 +66,7 @@ export function SettingsPage({
   const [runtimeRepairAction, setRuntimeRepairAction] = useState<string | null>(null);
   const [runtimeComponents, setRuntimeComponents] = useState<RuntimeComponent[]>([]);
   const [runtimeComponentStatus, setRuntimeComponentStatus] = useState<string | null>(null);
+  const [runtimeComponentStatusTargetId, setRuntimeComponentStatusTargetId] = useState<string | null>(null);
   const [runtimeComponentRefreshing, setRuntimeComponentRefreshing] = useState(false);
   const [runtimeComponentAction, setRuntimeComponentAction] = useState<string | null>(null);
   const [runtimeComponentProgress, setRuntimeComponentProgress] = useState<RuntimeComponentProgressEvent | null>(null);
@@ -183,6 +184,7 @@ export function SettingsPage({
   const handleDownloadRuntimeComponent = async (component: RuntimeComponent) => {
     const label = runtimeComponentLabel(component.id, t);
     setRuntimeComponentAction(`download:${component.id}`);
+    setRuntimeComponentStatusTargetId(component.id);
     setRuntimeComponentStatus(t('runtime.componentDownloadStarting', { item: label }));
     setRuntimeComponentProgress({
       id: component.id,
@@ -198,10 +200,12 @@ export function SettingsPage({
       });
       setRuntimeComponents(result.components);
       setRuntimeHealth(result.health);
+      setRuntimeComponentStatusTargetId(component.id);
       setRuntimeComponentStatus(result.message);
       setRuntimeComponentProgress(null);
       refreshDiagnosticsPreview();
     } catch (error) {
+      setRuntimeComponentStatusTargetId(component.id);
       setRuntimeComponentStatus(errorToMessage(error, t));
       setRuntimeComponentProgress(null);
       void refreshRuntimeComponents();
@@ -218,15 +222,18 @@ export function SettingsPage({
     }
 
     setRuntimeComponentAction(`delete:${component.id}`);
+    setRuntimeComponentStatusTargetId(component.id);
     try {
       const result = await invokeTauri<RuntimeComponentActionResult>('cmd_delete_runtime_component', {
         id: component.id,
       });
       setRuntimeComponents(result.components);
       setRuntimeHealth(result.health);
+      setRuntimeComponentStatusTargetId(component.id);
       setRuntimeComponentStatus(result.message);
       refreshDiagnosticsPreview();
     } catch (error) {
+      setRuntimeComponentStatusTargetId(component.id);
       setRuntimeComponentStatus(errorToMessage(error, t));
       void refreshRuntimeComponents();
       void refreshRuntimeHealth();
@@ -695,6 +702,7 @@ export function SettingsPage({
       handleRepairRuntimeDependency={handleRepairRuntimeDependency}
       runtimeComponents={runtimeComponents}
       runtimeComponentStatus={runtimeComponentStatus}
+      runtimeComponentStatusTargetId={runtimeComponentStatusTargetId}
       runtimeComponentRefreshing={runtimeComponentRefreshing}
       runtimeComponentAction={runtimeComponentAction}
       runtimeComponentProgress={runtimeComponentProgress}

@@ -66,6 +66,8 @@ interface SettingsContentProps {
   handleRepairRuntimeDependency: (item: RuntimeDependency) => Promise<void>;
   runtimeComponents: RuntimeComponent[];
   runtimeComponentStatus: string | null;
+  /** Component id that the latest status message refers to (e.g. yt-dlp). */
+  runtimeComponentStatusTargetId: string | null;
   runtimeComponentRefreshing: boolean;
   runtimeComponentAction: string | null;
   runtimeComponentProgress: RuntimeComponentProgressEvent | null;
@@ -149,6 +151,7 @@ export function SettingsContent({
   handleRepairRuntimeDependency,
   runtimeComponents,
   runtimeComponentStatus,
+  runtimeComponentStatusTargetId,
   runtimeComponentRefreshing,
   runtimeComponentAction,
   runtimeComponentProgress,
@@ -381,6 +384,13 @@ export function SettingsContent({
                             <div style={{ width: `${progress.progressPct}%` }} />
                           </div>
                         </>
+                      ) : null}
+                      {/* Show per-row action result so errors are not lost below a long list. */}
+                      {runtimeComponentStatus
+                        && runtimeComponentStatusTargetId === component.id ? (
+                        <p className="status-msg model-status-msg runtime-component-row-status">
+                          {runtimeComponentStatus}
+                        </p>
                       ) : null}
                     </div>
                     <div className="runtime-component-actions">
