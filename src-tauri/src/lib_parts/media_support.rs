@@ -187,11 +187,13 @@ pub(crate) fn probe_media_duration_seconds(path: &Path) -> Option<f64> {
 pub(crate) fn yt_dlp_command() -> PathBuf {
     if let Some(path) = command_env_override("AUDRAFLOW_YT_DLP_BIN")
         .or_else(|| command_env_override("FT_YT_DLP_BIN"))
+        .filter(|path| is_usable_tool_executable(path))
     {
         return path;
     }
 
-    if let Some(path) = find_managed_tool(yt_dlp_binary_name()) {
+    if let Some(path) = find_managed_tool(yt_dlp_binary_name()).filter(|path| is_usable_tool_executable(path))
+    {
         return path;
     }
 
@@ -216,19 +218,22 @@ pub(crate) fn yt_dlp_command() -> PathBuf {
         });
 
     match winget_path {
-        Some(path) if path.exists() => path,
-        _ => find_system_command("yt-dlp").unwrap_or_else(|| PathBuf::from("yt-dlp")),
+        Some(path) if is_usable_tool_executable(&path) => path,
+        _ => find_system_command(yt_dlp_binary_name())
+            .unwrap_or_else(|| PathBuf::from(yt_dlp_binary_name())),
     }
 }
 
 pub(crate) fn yt_dlp_command_for_app(app_handle: &tauri::AppHandle) -> PathBuf {
-    if let Some(path) =
-        command_env_override("AUDRAFLOW_YT_DLP_BIN").or_else(|| command_env_override("FT_YT_DLP_BIN"))
+    if let Some(path) = command_env_override("AUDRAFLOW_YT_DLP_BIN")
+        .or_else(|| command_env_override("FT_YT_DLP_BIN"))
+        .filter(|path| is_usable_tool_executable(path))
     {
         return path;
     }
 
-    if let Some(path) = find_runtime_component_tool_for_app(app_handle, "yt-dlp", yt_dlp_binary_name())
+    if let Some(path) =
+        find_runtime_component_tool_for_app(app_handle, "yt-dlp", yt_dlp_binary_name())
     {
         return path;
     }
@@ -278,31 +283,43 @@ pub(crate) fn apply_yt_dlp_youtube_compat(command: &mut tokio::process::Command)
 
 pub(crate) fn ffmpeg_command_for_app(app_handle: &tauri::AppHandle) -> PathBuf {
     command_env_override("AUDRAFLOW_FFMPEG_BIN")
-        .or_else(|| command_env_override("FT_FFMPEG_BIN"))
-        .or_else(|| find_runtime_component_tool_for_app(app_handle, "ffmpeg", tool_binary_name("ffmpeg")))
+        .filter(|path| is_usable_tool_executable(path))
+        .or_else(|| command_env_override("FT_FFMPEG_BIN").filter(|path| is_usable_tool_executable(path)))
+        .or_else(|| {
+            find_runtime_component_tool_for_app(app_handle, "ffmpeg", tool_binary_name("ffmpeg"))
+        })
         .or_else(|| find_runtime_component_tool("ffmpeg", tool_binary_name("ffmpeg")))
         .or_else(|| find_bundled_command("ffmpeg"))
         .or_else(|| find_dev_or_portable_tool(tool_binary_name("ffmpeg")))
-        .unwrap_or_else(|| PathBuf::from("ffmpeg"))
+        .or_else(|| find_system_command(tool_binary_name("ffmpeg")))
+        // Keep an absolute-looking sentinel so probes do not spawn a bare PATH name
+        // that resolves to a WindowsApps alias (exit code 9009, empty output).
+        .unwrap_or_else(|| PathBuf::from(tool_binary_name("ffmpeg")))
 }
 
 pub(crate) fn ffprobe_command() -> PathBuf {
     command_env_override("AUDRAFLOW_FFPROBE_BIN")
-        .or_else(|| command_env_override("FT_FFPROBE_BIN"))
+        .filter(|path| is_usable_tool_executable(path))
+        .or_else(|| command_env_override("FT_FFPROBE_BIN").filter(|path| is_usable_tool_executable(path)))
         .or_else(|| find_runtime_component_tool("ffmpeg", tool_binary_name("ffprobe")))
         .or_else(|| find_bundled_command("ffprobe"))
         .or_else(|| find_dev_or_portable_tool(tool_binary_name("ffprobe")))
-        .unwrap_or_else(|| PathBuf::from("ffprobe"))
+        .or_else(|| find_system_command(tool_binary_name("ffprobe")))
+        .unwrap_or_else(|| PathBuf::from(tool_binary_name("ffprobe")))
 }
 
 pub(crate) fn ffprobe_command_for_app(app_handle: &tauri::AppHandle) -> PathBuf {
     command_env_override("AUDRAFLOW_FFPROBE_BIN")
-        .or_else(|| command_env_override("FT_FFPROBE_BIN"))
-        .or_else(|| find_runtime_component_tool_for_app(app_handle, "ffmpeg", tool_binary_name("ffprobe")))
+        .filter(|path| is_usable_tool_executable(path))
+        .or_else(|| command_env_override("FT_FFPROBE_BIN").filter(|path| is_usable_tool_executable(path)))
+        .or_else(|| {
+            find_runtime_component_tool_for_app(app_handle, "ffmpeg", tool_binary_name("ffprobe"))
+        })
         .or_else(|| find_runtime_component_tool("ffmpeg", tool_binary_name("ffprobe")))
         .or_else(|| find_bundled_command("ffprobe"))
         .or_else(|| find_dev_or_portable_tool(tool_binary_name("ffprobe")))
-        .unwrap_or_else(|| PathBuf::from("ffprobe"))
+        .or_else(|| find_system_command(tool_binary_name("ffprobe")))
+        .unwrap_or_else(|| PathBuf::from(tool_binary_name("ffprobe")))
 }
 
 pub(crate) fn command_env_override(name: &str) -> Option<PathBuf> {
@@ -325,24 +342,67 @@ pub(crate) fn find_system_command(name: &str) -> Option<PathBuf> {
         candidates.push(PathBuf::from(home).join(".local/bin").join(name));
     }
 
-    candidates.into_iter().find(|path| path.exists())
+    candidates
+        .into_iter()
+        .find(|path| is_usable_tool_executable(path))
 }
 
 pub(crate) fn find_command_in_path(name: &str) -> Option<PathBuf> {
     let path_var = std::env::var_os("PATH")?;
     for dir in std::env::split_paths(&path_var) {
+        // Windows App Execution Aliases live under WindowsApps and are not real
+        // tools. They often exit with code 9009 ("command not found") and empty
+        // output, which previously made Runtime Health look permanently broken.
+        if is_windows_apps_alias_dir(&dir) {
+            continue;
+        }
         let candidate = dir.join(name);
-        if candidate.exists() {
+        if is_usable_tool_executable(&candidate) {
             return Some(candidate);
         }
         if cfg!(windows) {
             let exe_candidate = dir.join(format!("{name}.exe"));
-            if exe_candidate.exists() {
+            if is_usable_tool_executable(&exe_candidate) {
                 return Some(exe_candidate);
             }
         }
     }
     None
+}
+
+pub(crate) fn is_windows_apps_alias_dir(dir: &Path) -> bool {
+    let text = dir.to_string_lossy().to_ascii_lowercase();
+    text.contains(r"\windowsapps") || text.contains("/windowsapps")
+}
+
+/// Real tool binaries only — reject missing files, WindowsApps stubs, and tiny alias PE.
+pub(crate) fn is_usable_tool_executable(path: &Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    if is_windows_apps_alias_dir(path) || is_windows_apps_alias_dir(path.parent().unwrap_or(path)) {
+        return false;
+    }
+    let Ok(meta) = std::fs::metadata(path) else {
+        return false;
+    };
+    // WindowsApps alias shims and empty placeholders are tiny; real ffmpeg/yt-dlp
+    // are multi‑MB. Keep a conservative floor so stubs never win PATH lookup.
+    if cfg!(windows) && meta.len() < 32 * 1024 {
+        return false;
+    }
+    if cfg!(windows) {
+        use std::io::Read;
+        let mut header = [0_u8; 2];
+        if let Ok(mut file) = std::fs::File::open(path) {
+            if file.read(&mut header).ok() != Some(2) || header != *b"MZ" {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+    true
 }
 
 /// Prevent console windows from flashing when a GUI app spawns CLI tools on Windows.
@@ -382,7 +442,7 @@ pub(crate) fn find_bundled_command(name: &str) -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     for root in exe.ancestors() {
         for candidate in bundled_command_candidates(root, name) {
-            if candidate.exists() {
+            if is_usable_tool_executable(&candidate) {
                 return Some(candidate);
             }
         }

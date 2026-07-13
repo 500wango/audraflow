@@ -74,6 +74,54 @@ mod tests {
     }
 
     #[test]
+    fn windows_apps_alias_paths_are_rejected() {
+        assert!(is_windows_apps_alias_dir(Path::new(
+            r"C:\Users\test\AppData\Local\Microsoft\WindowsApps"
+        )));
+        assert!(!is_windows_apps_alias_dir(Path::new(
+            r"C:\Users\test\AppData\Roaming\com.audraflow.app\runtime\components\ffmpeg\bin"
+        )));
+    }
+
+    #[test]
+    fn format_process_failure_includes_command_and_streams() {
+        // Use a real failed process so ExitStatus is valid on all platforms.
+        let output = std::process::Command::new("false")
+            .output()
+            .or_else(|_| {
+                std::process::Command::new("cmd")
+                    .args(["/C", "exit /B 1"])
+                    .output()
+            })
+            .expect("spawn a failing process for test");
+        let message = format_process_failure(
+            "Failed to create AudraFlow Python environment",
+            Path::new("python"),
+            &["-m".into(), "venv".into(), "x".into()],
+            &output,
+        );
+        assert!(message.contains("Command: python -m venv x"), "{message}");
+        assert!(message.contains("exit"), "{message}");
+    }
+
+    #[test]
+    fn probe_output_looks_usable_accepts_ffmpeg_version_on_stderr() {
+        let output = std::process::Output {
+            status: std::process::ExitStatus::default(),
+            stdout: Vec::new(),
+            stderr: b"ffmpeg version 7.0 Copyright (c) 2000-2024".to_vec(),
+        };
+        // Exit status default may be success on some platforms; still assert content match.
+        assert!(probe_output_looks_usable("ffmpeg", &output));
+        assert!(probe_output_looks_usable("ffprobe", &output));
+        assert!(!probe_output_looks_usable("ffmpeg", &std::process::Output {
+            status: output.status,
+            stdout: Vec::new(),
+            stderr: b"access denied".to_vec(),
+        }));
+    }
+
+    #[test]
     fn component_binary_validation_rejects_html_and_accepts_pe_header() {
         let root = std::env::temp_dir().join(format!("audraflow-bin-check-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();

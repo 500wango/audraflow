@@ -1,7 +1,8 @@
 use crate::*;
 pub(crate) fn whisper_cli_command_for_app(app_handle: &tauri::AppHandle) -> PathBuf {
     command_env_override("AUDRAFLOW_WHISPER_CLI")
-        .or_else(|| command_env_override("FT_WHISPER_CLI"))
+        .filter(|path| is_usable_tool_executable(path))
+        .or_else(|| command_env_override("FT_WHISPER_CLI").filter(|path| is_usable_tool_executable(path)))
         .or_else(|| {
             find_runtime_component_tool_for_app(app_handle, "whisper", whisper_cli_binary_name())
         })
@@ -14,7 +15,8 @@ pub(crate) fn whisper_cli_command_for_app(app_handle: &tauri::AppHandle) -> Path
 
 pub(crate) fn funasr_cli_command_for_app(app_handle: &tauri::AppHandle) -> PathBuf {
     command_env_override("AUDRAFLOW_FUNASR_CLI")
-        .or_else(|| command_env_override("FT_FUNASR_CLI"))
+        .filter(|path| is_usable_tool_executable(path))
+        .or_else(|| command_env_override("FT_FUNASR_CLI").filter(|path| is_usable_tool_executable(path)))
         .or_else(|| {
             find_runtime_component_tool_for_app(app_handle, "funasr", funasr_cli_binary_name())
         })
@@ -86,7 +88,7 @@ pub(crate) fn find_dev_or_portable_tool(name: &str) -> Option<PathBuf> {
                 .join("bin")
                 .join(name),
         ] {
-            if candidate.is_file() {
+            if is_usable_tool_executable(&candidate) {
                 return Some(candidate);
             }
         }
@@ -113,9 +115,10 @@ pub(crate) fn find_staged_binary(root: &Path, name: &str) -> Option<PathBuf> {
                 let Some(file_name) = path.file_name().and_then(|value| value.to_str()) else {
                     continue;
                 };
-                if file_name == name
+                if (file_name == name
                     || file_name.starts_with(&format!("{stem}-"))
-                    || file_name.starts_with(&format!("{prefixed_stem}-"))
+                    || file_name.starts_with(&format!("{prefixed_stem}-")))
+                    && is_usable_tool_executable(&path)
                 {
                     return Some(path);
                 }

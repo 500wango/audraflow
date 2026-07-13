@@ -66,7 +66,7 @@ pub(crate) async fn runtime_health(app_handle: &tauri::AppHandle) -> RuntimeHeal
             whisper_cli_command_for_app(app_handle),
             &["--help"],
             None,
-            5,
+            15,
         )
         .await,
         probe_runtime_command(
@@ -75,7 +75,7 @@ pub(crate) async fn runtime_health(app_handle: &tauri::AppHandle) -> RuntimeHeal
             ffmpeg_command_for_app(app_handle),
             &["-version"],
             None,
-            5,
+            15,
         )
         .await,
         probe_runtime_command(
@@ -84,7 +84,7 @@ pub(crate) async fn runtime_health(app_handle: &tauri::AppHandle) -> RuntimeHeal
             ffprobe_command_for_app(app_handle),
             &["-version"],
             None,
-            5,
+            15,
         )
         .await,
         probe_sensevoice_python().await,
@@ -94,7 +94,7 @@ pub(crate) async fn runtime_health(app_handle: &tauri::AppHandle) -> RuntimeHeal
             yt_dlp_command_for_app(app_handle),
             &["--version"],
             None,
-            5,
+            15,
         )
         .await,
         probe_demucs().await,

@@ -274,7 +274,7 @@ pub(crate) fn runtime_component_dir_for_app(
 
 pub(crate) fn find_runtime_component_tool(component_id: &str, file_name: &str) -> Option<PathBuf> {
     let path = runtime_component_bin_dir(component_id).join(file_name);
-    path.is_file().then_some(path)
+    is_usable_tool_executable(&path).then_some(path)
 }
 
 pub(crate) fn find_runtime_component_tool_for_app(
@@ -284,7 +284,7 @@ pub(crate) fn find_runtime_component_tool_for_app(
 ) -> Option<PathBuf> {
     let component_dir = runtime_component_dir_for_app(app_handle, component_id).ok()?;
     let path = component_dir.join("bin").join(file_name);
-    path.is_file().then_some(path)
+    is_usable_tool_executable(&path).then_some(path)
 }
 
 pub(crate) fn find_runtime_component_spec(id: &str) -> Option<RuntimeComponentSpec> {
@@ -541,6 +541,22 @@ pub(crate) fn seed_whisper_runtime_component(app_handle: &tauri::AppHandle) -> R
             source_dir.display()
         ));
     }
+    // Partial copies (e.g. CLI without ggml DLLs) must not count as success.
+    let missing = required
+        .iter()
+        .filter(|name| !dest_bin.join(name).is_file())
+        .copied()
+        .collect::<Vec<_>>();
+    if !missing.is_empty() {
+        return Err(format!(
+            "whisper seed incomplete under {}: missing {}",
+            dest_bin.display(),
+            missing.join(", ")
+        ));
+    }
+    for name in required {
+        unblock_windows_file(&dest_bin.join(name));
+    }
     log::info!(
         "Seeded {copied} Whisper runtime file(s) into {}",
         dest_bin.display()
@@ -577,6 +593,8 @@ pub(crate) fn seed_ffmpeg_runtime_component(app_handle: &tauri::AppHandle) -> Re
             ffprobe_dest.display()
         )
     })?;
+    unblock_windows_file(&ffmpeg_dest);
+    unblock_windows_file(&ffprobe_dest);
     log::info!("Seeded FFmpeg runtime into {}", dest_bin.display());
     Ok(())
 }

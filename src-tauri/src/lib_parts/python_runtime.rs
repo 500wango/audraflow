@@ -3,26 +3,165 @@ pub(crate) fn resolve_system_python_invocation() -> Option<RuntimeInvocation> {
     if let Some(path) = command_env_override("AUDRAFLOW_PYTHON_BIN")
         .or_else(|| command_env_override("FT_PYTHON_BIN"))
     {
+        if is_usable_python_executable(&path) || path.is_file() {
+            return Some(RuntimeInvocation {
+                display: path.to_string_lossy().into_owned(),
+                program: path,
+                base_args: vec![],
+            });
+        }
+    }
+
+    // Prefer real installs over PATH (PATH often has WindowsApps python stubs that
+    // exit with code 9009 and produce "No output").
+    for program in discover_windows_python_installs() {
         return Some(RuntimeInvocation {
-            display: path.to_string_lossy().into_owned(),
-            program: path,
+            display: program.to_string_lossy().into_owned(),
+            program,
             base_args: vec![],
         });
     }
 
     ["python3", "python", "py"].iter().find_map(|name| {
-        find_system_command(name).map(|program| {
-            let mut base_args = Vec::new();
-            if is_py_launcher(&program) {
-                base_args.push("-3".into());
-            }
-            RuntimeInvocation {
-                display: command_display_path(&program),
-                program,
-                base_args,
-            }
-        })
+        find_system_command(name)
+            .filter(|program| is_usable_python_executable(program))
+            .map(|program| {
+                let mut base_args = Vec::new();
+                if is_py_launcher(&program) {
+                    base_args.push("-3".into());
+                }
+                RuntimeInvocation {
+                    display: command_display_path(&program),
+                    program,
+                    base_args,
+                }
+            })
     })
+}
+
+/// Locate python.org / Store-side-by-side installs under common Windows paths.
+pub(crate) fn discover_windows_python_installs() -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    if !cfg!(windows) {
+        return found;
+    }
+
+    let mut roots = Vec::new();
+    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+        roots.push(PathBuf::from(local).join("Programs").join("Python"));
+    }
+    if let Some(pf) = std::env::var_os("ProgramFiles") {
+        let pf = PathBuf::from(pf);
+        roots.push(pf.clone());
+        roots.push(pf.join("Python"));
+    }
+    if let Some(pf86) = std::env::var_os("ProgramFiles(x86)") {
+        let pf86 = PathBuf::from(pf86);
+        roots.push(pf86.clone());
+        roots.push(pf86.join("Python"));
+    }
+
+    for root in roots {
+        if !root.is_dir() {
+            continue;
+        }
+        // Direct python.exe under root or Python3x/python.exe
+        let direct = root.join("python.exe");
+        if is_usable_python_executable(&direct) {
+            found.push(direct);
+        }
+        if let Ok(entries) = std::fs::read_dir(&root) {
+            let mut dirs = entries.filter_map(Result::ok).collect::<Vec<_>>();
+            dirs.sort_by_key(|entry| entry.file_name());
+            dirs.reverse(); // prefer newer Python3xx names when sorted reverse
+            for entry in dirs {
+                let path = entry.path();
+                if !path.is_dir() {
+                    continue;
+                }
+                let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+                if !(name.starts_with("python") || name.starts_with("py3")) {
+                    continue;
+                }
+                let candidate = path.join("python.exe");
+                if is_usable_python_executable(&candidate) {
+                    found.push(candidate);
+                }
+            }
+        }
+    }
+
+    found
+}
+
+/// Python executables may be smaller than ffmpeg; still reject WindowsApps stubs.
+pub(crate) fn is_usable_python_executable(path: &Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    if is_windows_apps_alias_dir(path) || is_windows_apps_alias_dir(path.parent().unwrap_or(path)) {
+        return false;
+    }
+    let Ok(meta) = std::fs::metadata(path) else {
+        return false;
+    };
+    // WindowsApps alias shims are typically tiny or empty.
+    if cfg!(windows) && meta.len() < 8 * 1024 {
+        return false;
+    }
+    if cfg!(windows) {
+        use std::io::Read;
+        let mut header = [0_u8; 2];
+        if let Ok(mut file) = std::fs::File::open(path) {
+            if file.read(&mut header).ok() != Some(2) || header != *b"MZ" {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+    true
+}
+
+pub(crate) fn format_process_failure(
+    label: &str,
+    program: &Path,
+    args: &[String],
+    output: &std::process::Output,
+) -> String {
+    let cmdline = std::iter::once(program.display().to_string())
+        .chain(args.iter().cloned())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let code = output
+        .status
+        .code()
+        .map(|code| code.to_string())
+        .unwrap_or_else(|| output.status.to_string());
+    let stdout = short_output(&output.stdout).unwrap_or_default();
+    let stderr = short_output(&output.stderr).unwrap_or_default();
+    let mut parts = vec![
+        format!("{label} failed (exit {code})."),
+        format!("Command: {cmdline}"),
+    ];
+    if !stderr.is_empty() {
+        parts.push(format!("stderr: {stderr}"));
+    }
+    if !stdout.is_empty() {
+        parts.push(format!("stdout: {stdout}"));
+    }
+    if stdout.is_empty() && stderr.is_empty() {
+        if output.status.code() == Some(9009) {
+            parts.push(
+                "Windows exit 9009 means the selected Python was not a real interpreter (often a WindowsApps alias). Install Python 3 from python.org and ensure \"Add python.exe to PATH\" is enabled, or set AUDRAFLOW_PYTHON_BIN to the full path of python.exe.".into(),
+            );
+        } else {
+            parts.push(
+                "No stdout/stderr was captured. Install a real Python 3 (not the Microsoft Store stub) or set AUDRAFLOW_PYTHON_BIN.".into(),
+            );
+        }
+    }
+    parts.join(" ")
 }
 
 pub(crate) async fn run_runtime_invocation_with_timeout(
@@ -368,7 +507,7 @@ pub(crate) fn resolve_python_invocation() -> Option<RuntimeInvocation> {
 
 pub(crate) fn find_managed_python_invocation() -> Option<RuntimeInvocation> {
     let python = managed_python_bin();
-    if python.is_file() {
+    if is_usable_python_executable(&python) {
         return Some(RuntimeInvocation {
             display: python.to_string_lossy().into_owned(),
             program: python,
