@@ -122,7 +122,12 @@ pub fn run() {
                         .build(),
                 )?;
             }
-            log::info!("AudraFlow v0.1.0 started");
+            log::info!("AudraFlow v{} started", env!("CARGO_PKG_VERSION"));
+            // Seed managed runtime components from installer-bundled files before
+            // launching the orchestrator so first-run transcription can work on
+            // Windows NSIS/MSI installs without a manual Settings download.
+            #[cfg(target_os = "windows")]
+            seed_bundled_runtime_components(app.handle());
             start_orchestrator(app.handle());
             Ok(())
         })

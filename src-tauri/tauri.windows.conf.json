@@ -7,8 +7,8 @@
       "binaries/audraflow-ffmpeg",
       "binaries/audraflow-ffprobe"
     ],
-    "resources": [
-      "windows-runtime/*"
-    ]
+    "resources": {
+      "windows-runtime/*": "windows-runtime/"
+    }
   }
 }

@@ -6,7 +6,9 @@ Run this checklist on a Linux x64 desktop before handing AudraFlow to testers.
 
 - Ubuntu/Debian-compatible system for `.deb`, Fedora/RHEL-compatible system for `.rpm`, or any supported desktop distribution for AppImage.
 - GTK 3 and WebKitGTK 4.1 runtime libraries available on the target desktop.
-- The bundled Whisper base model prepared under `release/default-models/ggml-base.bin`.
+- The bundled Whisper base model prepared by `npm run prepare:runtime-assets` under:
+  - `src-tauri/default-models/ggml-base.bin` (required for Tauri packaging)
+  - `release/default-models/ggml-base.bin` (mirror)
 - Bundled `yt-dlp` for YouTube, Bilibili, and other platform links.
 - Optional `demucs` and `torchcodec` for vocal separation in Music / lyrics mode.
 

@@ -169,15 +169,38 @@ pub(crate) fn funasr_official_asset() -> Option<(&'static str, u64)> {
 }
 
 pub(crate) fn github_release_asset_url(asset_name: &str) -> String {
-    let tag = option_env!("AUDRAFLOW_COMPONENT_RELEASE_TAG")
+    // Prefer runtime env (dev/CI overrides), then compile-time bake from release builds.
+    // Never default to "unknown/audraflow" — that makes Settings repair unusable.
+    let tag = std::env::var("AUDRAFLOW_COMPONENT_RELEASE_TAG")
+        .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
+        .or_else(|| {
+            option_env!("AUDRAFLOW_COMPONENT_RELEASE_TAG")
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
         .unwrap_or_else(|| format!("v{}", env!("CARGO_PKG_VERSION")));
-    let base = option_env!("AUDRAFLOW_COMPONENT_BASE_URL")
+    let base = std::env::var("AUDRAFLOW_COMPONENT_BASE_URL")
+        .ok()
         .map(|s| s.trim().trim_end_matches('/').to_string())
         .filter(|s| !s.is_empty())
+        .or_else(|| {
+            option_env!("AUDRAFLOW_COMPONENT_BASE_URL")
+                .map(|s| s.trim().trim_end_matches('/').to_string())
+                .filter(|s| !s.is_empty())
+        })
         .unwrap_or_else(|| {
-            let repo = option_env!("AUDRAFLOW_BUILD_REPO").unwrap_or("unknown/audraflow");
+            let repo = std::env::var("AUDRAFLOW_BUILD_REPO")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .or_else(|| {
+                    option_env!("AUDRAFLOW_BUILD_REPO")
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                })
+                .unwrap_or_else(|| "500wango/audraflow".into());
             format!("https://github.com/{repo}/releases/download/{tag}")
         });
     format!("{base}/{asset_name}")
@@ -406,6 +429,177 @@ pub(crate) fn runtime_components(app_handle: &tauri::AppHandle) -> Vec<RuntimeCo
         .iter()
         .map(|spec| runtime_component_status(app_handle, spec))
         .collect()
+}
+
+/// Seed managed runtime component directories from files shipped with the installer.
+///
+/// Windows NSIS hooks attempt the same copy at install time. MSI has no NSIS hooks,
+/// and NSIS may miss alternate resource layouts — so the app re-seeds on startup.
+/// This is idempotent: existing complete component installs are left alone.
+#[cfg(target_os = "windows")]
+pub(crate) fn seed_bundled_runtime_components(app_handle: &tauri::AppHandle) {
+    if let Err(error) = seed_whisper_runtime_component(app_handle) {
+        log::warn!("Whisper runtime seed skipped: {error}");
+    }
+    if let Err(error) = seed_ffmpeg_runtime_component(app_handle) {
+        log::warn!("FFmpeg runtime seed skipped: {error}");
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn seed_whisper_runtime_component(app_handle: &tauri::AppHandle) -> Result<(), String> {
+    let required = [
+        "whisper-cli.exe",
+        "whisper.dll",
+        "ggml.dll",
+        "ggml-base.dll",
+        "ggml-cpu.dll",
+    ];
+    let dest_bin = runtime_component_dir_for_app(app_handle, "whisper")?.join("bin");
+    if required.iter().all(|name| dest_bin.join(name).is_file()) {
+        return Ok(());
+    }
+
+    let source_dir = find_bundled_whisper_runtime_dir(app_handle)
+        .ok_or_else(|| "bundled whisper runtime directory was not found".to_string())?;
+
+    std::fs::create_dir_all(&dest_bin).map_err(|e| e.to_string())?;
+    let mut copied = 0usize;
+    for name in required {
+        let mut source = source_dir.join(name);
+        if !source.is_file() && name == "whisper-cli.exe" {
+            // Bundled externalBin name
+            let alt = source_dir.join("audraflow-whisper-cli.exe");
+            if alt.is_file() {
+                source = alt;
+            }
+        }
+        if !source.is_file() {
+            continue;
+        }
+        let dest = dest_bin.join(name);
+        std::fs::copy(&source, &dest).map_err(|e| {
+            format!(
+                "failed to seed whisper file {} -> {}: {e}",
+                source.display(),
+                dest.display()
+            )
+        })?;
+        copied += 1;
+    }
+
+    if copied == 0 {
+        return Err(format!(
+            "no whisper runtime files found under {}",
+            source_dir.display()
+        ));
+    }
+    log::info!(
+        "Seeded {copied} Whisper runtime file(s) into {}",
+        dest_bin.display()
+    );
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn seed_ffmpeg_runtime_component(app_handle: &tauri::AppHandle) -> Result<(), String> {
+    let dest_bin = runtime_component_dir_for_app(app_handle, "ffmpeg")?.join("bin");
+    let ffmpeg_dest = dest_bin.join("ffmpeg.exe");
+    let ffprobe_dest = dest_bin.join("ffprobe.exe");
+    if ffmpeg_dest.is_file() && ffprobe_dest.is_file() {
+        return Ok(());
+    }
+
+    let ffmpeg_src = find_bundled_tool_file(app_handle, "ffmpeg")
+        .ok_or_else(|| "bundled ffmpeg was not found".to_string())?;
+    let ffprobe_src = find_bundled_tool_file(app_handle, "ffprobe")
+        .ok_or_else(|| "bundled ffprobe was not found".to_string())?;
+
+    std::fs::create_dir_all(&dest_bin).map_err(|e| e.to_string())?;
+    std::fs::copy(&ffmpeg_src, &ffmpeg_dest).map_err(|e| {
+        format!(
+            "failed to seed ffmpeg {} -> {}: {e}",
+            ffmpeg_src.display(),
+            ffmpeg_dest.display()
+        )
+    })?;
+    std::fs::copy(&ffprobe_src, &ffprobe_dest).map_err(|e| {
+        format!(
+            "failed to seed ffprobe {} -> {}: {e}",
+            ffprobe_src.display(),
+            ffprobe_dest.display()
+        )
+    })?;
+    log::info!("Seeded FFmpeg runtime into {}", dest_bin.display());
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn find_bundled_whisper_runtime_dir(app_handle: &tauri::AppHandle) -> Option<PathBuf> {
+    let mut roots = bundled_sidecar_roots(app_handle);
+    roots.extend(runtime_search_roots());
+    for root in dedupe_path_list(roots) {
+        for candidate in [
+            root.join("windows-runtime"),
+            root.join("resources").join("windows-runtime"),
+            root.clone(),
+            root.join("resources"),
+        ] {
+            if candidate.join("whisper-cli.exe").is_file()
+                || candidate.join("audraflow-whisper-cli.exe").is_file()
+            {
+                // Prefer dirs that also have at least one ggml DLL (full runtime).
+                if candidate.join("ggml.dll").is_file()
+                    || candidate.join("whisper.dll").is_file()
+                    || candidate.join("ggml-base.dll").is_file()
+                {
+                    return Some(candidate);
+                }
+            }
+        }
+    }
+    // Fall back to any dir that has the CLI even without DLLs.
+    let mut roots = bundled_sidecar_roots(app_handle);
+    roots.extend(runtime_search_roots());
+    for root in dedupe_path_list(roots) {
+        for candidate in [
+            root.join("windows-runtime"),
+            root.join("resources").join("windows-runtime"),
+            root.clone(),
+        ] {
+            if candidate.join("whisper-cli.exe").is_file()
+                || candidate.join("audraflow-whisper-cli.exe").is_file()
+            {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn find_bundled_tool_file(app_handle: &tauri::AppHandle, stem: &str) -> Option<PathBuf> {
+    let names = vec![
+        format!("audraflow-{stem}.exe"),
+        format!("{stem}.exe"),
+        stem.to_string(),
+    ];
+
+    for root in bundled_sidecar_roots(app_handle) {
+        for name in &names {
+            for candidate in [
+                root.join(name),
+                root.join("bin").join(name),
+                root.join("windows-runtime").join(name),
+                root.join("resources").join("windows-runtime").join(name),
+            ] {
+                if candidate.is_file() {
+                    return Some(candidate);
+                }
+            }
+        }
+    }
+    find_bundled_command(stem).or_else(|| find_bundled_command(&format!("{stem}.exe")))
 }
 
 pub(crate) fn emit_runtime_component_progress(
@@ -705,19 +899,22 @@ pub(crate) async fn download_url_to_path_with_progress(
 
     let tmp_path = destination.with_extension("tmp");
     let _ = tokio::fs::remove_file(&tmp_path).await;
+    // Token must come from runtime env only — never option_env! — so release
+    // binaries cannot embed CI secrets baked in at compile time.
+    let token = std::env::var("AUDRAFLOW_GITHUB_TOKEN")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .connect_timeout(Duration::from_secs(10))
         .user_agent("AudraFlow/1.0")
         .default_headers({
             let mut headers = reqwest::header::HeaderMap::new();
-            let token = option_env!("AUDRAFLOW_GITHUB_TOKEN")
-                .map(|s| s.trim())
-                .unwrap_or("");
-            if !token.is_empty() {
-                if let Ok(mut auth) = reqwest::header::HeaderValue::from_str(
-                    &format!("Bearer {token}")
-                ) {
+            if let Some(token) = token.as_deref() {
+                if let Ok(mut auth) =
+                    reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))
+                {
                     auth.set_sensitive(true);
                     headers.insert(reqwest::header::AUTHORIZATION, auth);
                 }
@@ -727,9 +924,7 @@ pub(crate) async fn download_url_to_path_with_progress(
         .build()
         .map_err(|e| format!("Failed to create download client: {e}"))?;
 
-    let has_auth = option_env!("AUDRAFLOW_GITHUB_TOKEN")
-        .map(|s| !s.trim().is_empty())
-        .unwrap_or(false);
+    let has_auth = token.is_some();
     emit_runtime_component_progress(
         app_handle,
         id,

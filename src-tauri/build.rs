@@ -1,6 +1,6 @@
 fn main() {
-    // Force recompilation when these env vars change (used by option_env! in code)
-    println!("cargo:rerun-if-env-changed=AUDRAFLOW_GITHUB_TOKEN");
+    // Force recompilation when these env vars change (used by option_env! for
+    // public release URLs only — never bake secrets such as AUDRAFLOW_GITHUB_TOKEN).
     println!("cargo:rerun-if-env-changed=AUDRAFLOW_COMPONENT_RELEASE_TAG");
     println!("cargo:rerun-if-env-changed=AUDRAFLOW_COMPONENT_BASE_URL");
     println!("cargo:rerun-if-env-changed=AUDRAFLOW_BUILD_REPO");

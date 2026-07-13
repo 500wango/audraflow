@@ -1,5 +1,5 @@
 import { createWriteStream } from 'node:fs';
-import { chmod, mkdir, readFile, rename, rm, stat } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, readFile, rename, rm, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { spawnSync } from 'node:child_process';
@@ -9,6 +9,14 @@ const targetTriple = process.env.AUDRAFLOW_TARGET_TRIPLE || process.env.CARGO_BU
 const isWindowsTarget = targetTriple.includes('windows');
 const isLinuxTarget = targetTriple.includes('linux');
 const isMacosTarget = targetTriple.includes('apple-darwin') || targetTriple.includes('darwin');
+
+// Must match src-tauri/src/lib.rs DEFAULT_WHISPER_MODEL_* constants.
+const DEFAULT_MODEL_NAME = 'ggml-base.bin';
+const DEFAULT_MODEL_MIN_BYTES = 100 * 1024 * 1024;
+const DEFAULT_MODEL_EXPECTED_BYTES = 147_951_465;
+const DEFAULT_MODEL_URL =
+  process.env.AUDRAFLOW_DEFAULT_MODEL_URL ||
+  'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin';
 
 const ytDlpAsset = (() => {
   if (isWindowsTarget) {
@@ -84,6 +92,14 @@ async function assertNotHtml(path, url) {
   }
 }
 
+async function isUsableFile(path, minBytes) {
+  if (!(await pathExists(path))) {
+    return false;
+  }
+  const size = await fileSize(path);
+  return size >= minBytes;
+}
+
 async function ensureYtDlp() {
   if (!ytDlpAsset) {
     console.log(`skipping yt-dlp asset for unsupported target: ${targetTriple}`);
@@ -115,4 +131,57 @@ async function ensureYtDlp() {
   console.log(`yt-dlp ready: ${ytDlpAsset.path}`);
 }
 
+/**
+ * Bundled default Whisper base model for first-run transcription.
+ * Tauri packages `src-tauri/default-models/ggml-base.bin` as a resource.
+ * Also mirror under release/default-models for portable/docs paths.
+ */
+async function ensureDefaultWhisperModel() {
+  const bundledPath = join(workspaceRoot, 'src-tauri', 'default-models', DEFAULT_MODEL_NAME);
+  const releasePath = join(workspaceRoot, 'release', 'default-models', DEFAULT_MODEL_NAME);
+  const candidates = [
+    process.env.AUDRAFLOW_DEFAULT_MODEL_BIN,
+    releasePath,
+    join(workspaceRoot, 'external', 'whisper.cpp', 'models', DEFAULT_MODEL_NAME),
+  ].filter(Boolean);
+
+  let source = null;
+  for (const candidate of candidates) {
+    if (await isUsableFile(candidate, DEFAULT_MODEL_MIN_BYTES)) {
+      source = candidate;
+      break;
+    }
+  }
+
+  if (await isUsableFile(bundledPath, DEFAULT_MODEL_MIN_BYTES)) {
+    console.log(`default Whisper model ready: ${bundledPath}`);
+  } else if (source) {
+    await mkdir(dirname(bundledPath), { recursive: true });
+    await copyFile(source, bundledPath);
+    console.log(`default Whisper model copied: ${source} -> ${bundledPath}`);
+  } else {
+    console.log(`downloading default Whisper model: ${DEFAULT_MODEL_URL}`);
+    await downloadFile(DEFAULT_MODEL_URL, bundledPath);
+    const size = await fileSize(bundledPath);
+    if (size < DEFAULT_MODEL_MIN_BYTES) {
+      await rm(bundledPath, { force: true });
+      throw new Error(`default Whisper model is too small: ${size} bytes`);
+    }
+    if (size !== DEFAULT_MODEL_EXPECTED_BYTES) {
+      console.log(
+        `warning: default model size ${size} != expected ${DEFAULT_MODEL_EXPECTED_BYTES} (continuing)`,
+      );
+    }
+    console.log(`default Whisper model ready: ${bundledPath} (${size} bytes)`);
+  }
+
+  // Keep release/ mirror for docs and portable packaging checks.
+  if (!(await isUsableFile(releasePath, DEFAULT_MODEL_MIN_BYTES))) {
+    await mkdir(dirname(releasePath), { recursive: true });
+    await copyFile(bundledPath, releasePath);
+    console.log(`default Whisper model mirrored: ${releasePath}`);
+  }
+}
+
+await ensureDefaultWhisperModel();
 await ensureYtDlp();

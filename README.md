@@ -30,7 +30,7 @@ Linux packages also include the local runtime tools needed for transcription and
 
 macOS packages include the same command-line tools without the Linux shared libraries.
 
-Windows installers intentionally stay small. They include the app and Rust sidecars only; Whisper, FFmpeg, and yt-dlp are app-managed runtime components downloaded from Settings after installation. Windows release builds publish separate component archives:
+Windows installers ship the app, Rust sidecars, and (when staged) Whisper/FFmpeg tools. On install or first launch the app seeds managed runtime components under `%APPDATA%\com.audraflow.app\runtime\components`. Settings can still repair or re-download components from release archives if files are missing. Windows release builds also publish:
 
 - `AudraFlow_<version>_windows_whisper-runtime.zip`
 - `AudraFlow_<version>_windows_ffmpeg-runtime.zip`
@@ -77,7 +77,7 @@ For cross-target staging, set `AUDRAFLOW_TARGET_TRIPLE` or `CARGO_BUILD_TARGET` 
 
 ## Local ASR Engines
 
-AudraFlow defaults to Auto engine selection for new transcription jobs. ASR models are downloaded or imported from Settings. Auto uses local Whisper after a Whisper model is selected. On Windows, users should install the Whisper and FFmpeg runtime components from Settings before running local transcription. In Music / lyrics mode, Auto uses the selected or preferred Whisper model with long-context chunking. Extreme lyrics mode also merges original-audio and Demucs-vocals candidates when possible.
+AudraFlow defaults to Auto engine selection for new transcription jobs. ASR models are downloaded or imported from Settings. Auto uses local Whisper after a Whisper model is selected. On Windows, a correctly built installer pre-seeds Whisper and FFmpeg; if Runtime Health still reports them missing, use Settings repair. In Music / lyrics mode, Auto uses the selected or preferred Whisper model with long-context chunking. Extreme lyrics mode also merges original-audio and Demucs-vocals candidates when possible.
 
 Settings includes Runtime Health for install validation, Runtime Components for app-managed tool downloads, and one-click repair for optional Python packages. Python itself is not bundled in the Windows installer. If the user enables SenseVoice or Demucs repair, AudraFlow uses a detected Python 3 installation (or `AUDRAFLOW_PYTHON_BIN`) to create an isolated venv under the app data runtime directory and installs the required packages there. Manual commands and environment variables below are fallback paths when managed components or repair cannot be used in the target environment.
 
@@ -156,7 +156,7 @@ The Whisper runtime and orchestrator auto-discover `whisper-cli` from:
 5. `external\whisper.cpp\build\bin\whisper-cli.exe` on Windows
 6. `PATH`
 
-Linux and macOS release packages include bundled `ffmpeg`, `ffprobe`, `whisper-cli`, and `yt-dlp` for local files and platform page URLs such as YouTube-style links. Windows users install those tools from Runtime Components in Settings. You can still override them with `AUDRAFLOW_FFMPEG_BIN`, `AUDRAFLOW_FFPROBE_BIN`, `AUDRAFLOW_WHISPER_CLI`, or `AUDRAFLOW_YT_DLP_BIN`.
+Linux and macOS release packages include bundled `ffmpeg`, `ffprobe`, `whisper-cli`, and `yt-dlp` for local files and platform page URLs such as YouTube-style links. Windows release packages stage Whisper/FFmpeg into the installer and seed them on install/first launch; yt-dlp remains an optional Settings component. You can still override tools with `AUDRAFLOW_FFMPEG_BIN`, `AUDRAFLOW_FFPROBE_BIN`, `AUDRAFLOW_WHISPER_CLI`, or `AUDRAFLOW_YT_DLP_BIN`.
 
 ## Music / Lyrics Mode
 

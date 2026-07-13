@@ -56,6 +56,24 @@ mod tests {
     }
 
     #[test]
+    fn github_release_asset_url_defaults_to_known_repo() {
+        // Ensure we never fall back to the broken "unknown/audraflow" placeholder.
+        let url = github_release_asset_url("AudraFlow_1.0.0_windows_whisper-runtime.zip");
+        assert!(
+            url.contains("github.com/") && url.contains("audraflow"),
+            "unexpected component URL: {url}"
+        );
+        assert!(
+            !url.contains("unknown/audraflow"),
+            "component URL must not use unknown/audraflow: {url}"
+        );
+        assert!(
+            url.ends_with("/AudraFlow_1.0.0_windows_whisper-runtime.zip"),
+            "unexpected component URL: {url}"
+        );
+    }
+
+    #[test]
     fn repair_validation_accepts_ready_target() {
         let health = RuntimeHealthDto {
             generated_at_ms: 0,

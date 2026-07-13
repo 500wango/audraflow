@@ -327,8 +327,9 @@ if (targetTriple.includes('linux')) {
     }
   }
 
-  // Stage whisper DLLs to windows-runtime/ for NSIS pre-installation
-  // into the managed runtime component directory.
+  // Stage whisper + ffmpeg tools into windows-runtime/ for:
+  // 1) NSIS post-install pre-seed into %APPDATA%\com.audraflow.app\runtime\components
+  // 2) App first-run seed (also covers MSI installs without NSIS hooks)
   const whisperRuntimeDir = join(workspaceRoot, 'src-tauri', 'windows-runtime');
   await mkdir(whisperRuntimeDir, { recursive: true });
   let dllsStaged = 0;
@@ -343,12 +344,27 @@ if (targetTriple.includes('linux')) {
       console.log(`skipped whisper DLL (not found): ${dll.name}`);
     }
   }
-  // Also copy whisper-cli.exe to windows-runtime/ for the NSIS pre-install
-  if (dllsStaged > 0) {
-    const whisperCliSource = await findExistingFile(windowsToolSources[0].sources);
-    if (whisperCliSource) {
-      await copyFile(whisperCliSource, join(whisperRuntimeDir, 'whisper-cli.exe'));
-      console.log(`staged whisper-cli.exe to windows-runtime/`);
+  // Always try to stage whisper-cli.exe into windows-runtime/
+  const whisperCliSource = await findExistingFile(windowsToolSources[0].sources);
+  if (whisperCliSource) {
+    await copyFile(whisperCliSource, join(whisperRuntimeDir, 'whisper-cli.exe'));
+    console.log(`staged whisper-cli.exe to windows-runtime/`);
+  } else if (dllsStaged > 0) {
+    console.log('warning: whisper DLLs staged but whisper-cli.exe was not found');
+  }
+
+  // Stage ffmpeg/ffprobe into windows-runtime for install-time pre-seed.
+  for (const tool of [
+    { name: 'ffmpeg.exe', sources: windowsToolSources[1].sources },
+    { name: 'ffprobe.exe', sources: windowsToolSources[2].sources },
+  ]) {
+    const source = await findExistingFile(tool.sources);
+    if (source) {
+      const dest = join(whisperRuntimeDir, tool.name);
+      await copyFile(source, dest);
+      console.log(`staged ${tool.name} to windows-runtime/`);
+    } else {
+      console.log(`skipped ${tool.name} for windows-runtime (not found)`);
     }
   }
 } else if (isMacosTarget) {

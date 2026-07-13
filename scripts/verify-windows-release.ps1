@@ -172,10 +172,19 @@ function Test-NsisHookConfig {
   Assert-File -Path $hookPath -MinBytes 128 | Out-Null
   $hookText = Get-Content -LiteralPath $hookPath -Raw
   if ($hookText -notmatch 'vc_redist\.x64\.exe') {
-    throw "NSIS installer hook does not download the x64 VC++ Redistributable: $hookPath"
+    throw "NSIS installer hook does not install the x64 VC++ Redistributable: $hookPath"
   }
   if ($hookText -notmatch 'SOFTWARE\\Microsoft\\VisualStudio\\14\.0\\VC\\Runtimes\\x64') {
     throw "NSIS installer hook does not check the x64 VC++ Runtime registry key: $hookPath"
+  }
+  if ($hookText -notmatch 'windows-runtime') {
+    throw "NSIS installer hook does not pre-install windows-runtime whisper files: $hookPath"
+  }
+  if ($hookText -notmatch 'com\.audraflow\.app\\runtime\\components\\whisper') {
+    throw "NSIS installer hook does not seed the managed whisper component path: $hookPath"
+  }
+  if ($hookText -notmatch 'com\.audraflow\.app\\runtime\\components\\ffmpeg') {
+    throw "NSIS installer hook does not seed the managed ffmpeg component path: $hookPath"
   }
   if ($hookText -match "(?m)^\s*ExecWait\s+'") {
     throw "NSIS ExecWait commands must use backtick-quoted command lines: $hookPath"
@@ -183,10 +192,28 @@ function Test-NsisHookConfig {
   Write-Host "OK $hookRelativePath"
 }
 
+function Test-WindowsBundleConfig {
+  param([string]$Workspace)
+
+  Write-Step 'Checking Windows bundle configuration'
+  $windowsConfigPath = Join-Path $Workspace 'src-tauri\tauri.windows.conf.json'
+  $windowsConfig = Get-Content -LiteralPath $windowsConfigPath -Raw | ConvertFrom-Json
+  $resources = $windowsConfig.bundle.resources
+  if (-not $resources) {
+    throw 'tauri.windows.conf.json is missing bundle.resources for windows-runtime'
+  }
+  $resourceText = $resources | ConvertTo-Json -Compress
+  if ($resourceText -notmatch 'windows-runtime') {
+    throw "tauri.windows.conf.json resources do not include windows-runtime: $resourceText"
+  }
+  Write-Host 'OK windows-runtime resources configured'
+}
+
 Assert-WindowsHost
 $workspace = Resolve-WorkspaceRoot
 Set-Location $workspace
 Test-NsisHookConfig -Workspace $workspace
+Test-WindowsBundleConfig -Workspace $workspace
 
 if (-not $PortableDir) {
   $PortableDir = Join-Path $workspace 'release\windows-portable\AudraFlow'

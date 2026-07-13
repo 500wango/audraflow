@@ -9,8 +9,10 @@ Run this checklist on a real Windows x64 machine before handing AudraFlow to tes
 - Rust stable with the MSVC toolchain.
 - Visual Studio Build Tools with the C++ desktop workload.
 - PowerShell 5.1+.
-- Bundled Windows runtime tools in `release\windows-portable\AudraFlow\bin`.
-- The bundled default Whisper base model prepared under `release\default-models\ggml-base.bin`.
+- Bundled Windows runtime tools in `release\windows-portable\AudraFlow\bin` (ffmpeg, ffprobe, whisper-cli + DLLs).
+- The bundled default Whisper base model is prepared automatically by `npm run prepare:runtime-assets` into:
+  - `src-tauri\default-models\ggml-base.bin` (required for Tauri packaging)
+  - `release\default-models\ggml-base.bin` (mirror for portable/docs checks)
 
 ## Build
 
@@ -74,9 +76,12 @@ Install the NSIS or MSI package and verify:
 Current Windows data paths:
 
 ```text
-Database: %APPDATA%\AudraFlow\audraflow.db
-Models:   Tauri app data directory\models
+Database: %APPDATA%\com.audraflow.app\audraflow.db
+Models:   %APPDATA%\com.audraflow.app\models
+Runtime:  %APPDATA%\com.audraflow.app\runtime\components\{whisper,ffmpeg}\bin
 ```
+
+After a successful NSIS install (or first app launch on MSI), Runtime Health should show Whisper and FFmpeg as ready without a manual Settings download when those tools were staged into the installer.
 
 ## Acceptance
 
