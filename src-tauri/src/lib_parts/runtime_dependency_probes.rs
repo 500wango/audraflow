@@ -404,10 +404,30 @@ pub(crate) async fn repair_runtime_dependency(
             if let Some(message) = repair_vc_redist_if_missing(&app_handle).await? {
                 messages.push(message);
             }
-            messages.push(install_runtime_component_by_id(&app_handle, "whisper").await?);
+            // Prefer installer-bundled runtime over a network download when available.
+            messages.extend(try_seed_windows_runtime_components(&app_handle));
+            if !component_files_satisfy_health_id(&app_handle, "whisperCli") {
+                messages.push(install_runtime_component_by_id(&app_handle, "whisper").await?);
+            } else {
+                messages.push(
+                    "Whisper runtime files are present under the managed component directory."
+                        .into(),
+                );
+            }
             messages.join(" ")
         }
-        "ffmpeg" | "ffprobe" => install_runtime_component_by_id(&app_handle, "ffmpeg").await?,
+        "ffmpeg" | "ffprobe" => {
+            let mut messages = try_seed_windows_runtime_components(&app_handle);
+            if !component_files_satisfy_health_id(&app_handle, "ffmpeg") {
+                messages.push(install_runtime_component_by_id(&app_handle, "ffmpeg").await?);
+            } else {
+                messages.push(
+                    "FFmpeg runtime files are present under the managed component directory."
+                        .into(),
+                );
+            }
+            messages.join(" ")
+        }
         "funasrCli" => {
             let vc_redist_message = repair_vc_redist_if_missing(&app_handle).await?;
             let command = funasr_cli_command_for_app(&app_handle);
@@ -451,8 +471,16 @@ pub(crate) async fn repair_runtime_dependency(
         }
     };
 
-    let health = runtime_health(&app_handle).await;
-    ensure_repair_succeeded(&health, normalized)?;
+    // Probe immediately after install is flaky on Windows (AV cold-scan locks the
+    // just-written exe for a few seconds). Retry and accept file-level readiness
+    // for managed components so a successful install is not reported as failure.
+    let (health, validation_note) =
+        ensure_repair_succeeded_with_retries(&app_handle, normalized).await?;
+    let message = if validation_note.is_empty() {
+        message
+    } else {
+        format!("{message} {validation_note}")
+    };
 
     Ok(RuntimeRepairResultDto {
         id: normalized.into(),
@@ -460,6 +488,51 @@ pub(crate) async fn repair_runtime_dependency(
         components: runtime_components(&app_handle),
         health,
     })
+}
+
+/// Seed Whisper/FFmpeg from the installed package when present (Windows only).
+pub(crate) fn try_seed_windows_runtime_components(app_handle: &tauri::AppHandle) -> Vec<String> {
+    let mut messages = Vec::new();
+    #[cfg(target_os = "windows")]
+    {
+        seed_bundled_runtime_components(app_handle);
+        if component_files_satisfy_health_id(app_handle, "whisperCli") {
+            messages.push("Seeded Whisper from the installer package.".into());
+        }
+        if component_files_satisfy_health_id(app_handle, "ffmpeg") {
+            messages.push("Seeded FFmpeg from the installer package.".into());
+        }
+    }
+    let _ = app_handle;
+    messages
+}
+
+/// Whether managed component files for a health-row id are present and valid.
+pub(crate) fn component_files_satisfy_health_id(
+    app_handle: &tauri::AppHandle,
+    health_id: &str,
+) -> bool {
+    let Some(component_id) = health_id_to_component_id(health_id) else {
+        return false;
+    };
+    let Some(spec) = find_runtime_component_spec(component_id) else {
+        return false;
+    };
+    let Ok(dir) = runtime_component_dir_for_app(app_handle, spec.id) else {
+        return false;
+    };
+    verify_component_files(&spec, &dir.join("bin")).is_ok()
+}
+
+pub(crate) fn health_id_to_component_id(health_id: &str) -> Option<&'static str> {
+    match health_id {
+        "whisperCli" => Some("whisper"),
+        "ffmpeg" | "ffprobe" => Some("ffmpeg"),
+        "ytDlp" => Some("yt-dlp"),
+        "funasrCli" => Some("funasr"),
+        "vcRedist" => Some("vc-redist"),
+        _ => None,
+    }
 }
 
 pub(crate) async fn repair_vc_redist_if_missing(app_handle: &tauri::AppHandle) -> Result<Option<String>, String> {
@@ -490,6 +563,62 @@ pub(crate) fn ensure_repair_succeeded(health: &RuntimeHealthDto, id: &str) -> Re
         }
     }
     Ok(())
+}
+
+/// Validate repair with retries. Managed component installs are considered successful
+/// when the on-disk files verify even if a cold antivirus scan makes the first
+/// `--version`/`--help` probe return warning/missing for a moment.
+pub(crate) async fn ensure_repair_succeeded_with_retries(
+    app_handle: &tauri::AppHandle,
+    id: &str,
+) -> Result<(RuntimeHealthDto, String), String> {
+    let targets = repair_validation_targets(id);
+    if targets.is_empty() {
+        let health = runtime_health(app_handle).await;
+        return Ok((health, String::new()));
+    }
+
+    let mut last_health = runtime_health(app_handle).await;
+    for attempt in 0..4 {
+        if ensure_repair_succeeded(&last_health, id).is_ok() {
+            return Ok((last_health, String::new()));
+        }
+
+        // File-level acceptance for managed components after install.
+        let files_ok = targets
+            .iter()
+            .all(|target| component_files_satisfy_health_id(app_handle, target));
+        if files_ok {
+            let soft_ok = targets.iter().all(|target| {
+                last_health
+                    .items
+                    .iter()
+                    .find(|item| item.id == *target)
+                    .map(|item| item.status == "ready" || item.status == "warning")
+                    .unwrap_or(false)
+            });
+            if soft_ok {
+                return Ok((
+                    last_health,
+                    "Files are installed; runtime probe still reported a temporary warning (often Windows antivirus scanning a new executable).".into(),
+                ));
+            }
+            // Files exist but probe says missing (spawn blocked). Still treat as repaired
+            // when the managed component tree verifies, so the UI stops claiming failure.
+            if attempt >= 2 {
+                return Ok((
+                    last_health,
+                    "Files are installed under the managed component directory. If Runtime Health still shows missing, wait a few seconds for antivirus to release the executable, then refresh.".into(),
+                ));
+            }
+        }
+
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        last_health = runtime_health(app_handle).await;
+    }
+
+    ensure_repair_succeeded(&last_health, id)?;
+    Ok((last_health, String::new()))
 }
 
 pub(crate) fn repair_validation_targets(id: &str) -> Vec<&'static str> {

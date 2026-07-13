@@ -62,6 +62,7 @@ export function SettingsPage({
   const [diagnosticsPreview, setDiagnosticsPreview] = useState<DiagnosticsPreview | null>(null);
   const [runtimeHealth, setRuntimeHealth] = useState<RuntimeHealth | null>(null);
   const [runtimeHealthStatus, setRuntimeHealthStatus] = useState<string | null>(null);
+  const [runtimeHealthStatusTargetId, setRuntimeHealthStatusTargetId] = useState<string | null>(null);
   const [runtimeHealthRefreshing, setRuntimeHealthRefreshing] = useState(false);
   const [runtimeRepairAction, setRuntimeRepairAction] = useState<string | null>(null);
   const [runtimeComponents, setRuntimeComponents] = useState<RuntimeComponent[]>([]);
@@ -162,6 +163,7 @@ export function SettingsPage({
 
   const handleRepairRuntimeDependency = async (item: RuntimeDependency) => {
     setRuntimeRepairAction(item.id);
+    setRuntimeHealthStatusTargetId(item.id);
     setRuntimeHealthStatus(t('runtime.repairingItem', { item: runtimeDependencyLabel(item.id, t) }));
     try {
       const result = await invokeTauri<RuntimeRepairResult>('cmd_repair_runtime_dependency', {
@@ -169,16 +171,68 @@ export function SettingsPage({
       });
       setRuntimeHealth(result.health);
       setRuntimeComponents(result.components);
+      setRuntimeHealthStatusTargetId(item.id);
       setRuntimeHealthStatus(result.message);
       onRefreshModelSettings();
       refreshDiagnosticsPreview();
     } catch (error) {
+      // Keep the failed item id so the error renders next to that health row.
+      setRuntimeHealthStatusTargetId(item.id);
       setRuntimeHealthStatus(errorToMessage(error, t));
       void refreshRuntimeHealth();
       void refreshRuntimeComponents();
     } finally {
       setRuntimeRepairAction(null);
     }
+  };
+
+  const handleRepairAllRuntimeDependencies = async () => {
+    if (!runtimeHealth) return;
+    const targets = runtimeHealth.items.filter(
+      (item) => item.status !== 'ready' && item.repairable,
+    );
+    if (targets.length === 0) {
+      setRuntimeHealthStatusTargetId(null);
+      setRuntimeHealthStatus(t('runtime.noBlocking'));
+      return;
+    }
+
+    setRuntimeRepairAction('__all__');
+    setRuntimeHealthStatusTargetId(null);
+    setRuntimeHealthStatus(t('runtime.repairAllStarting', { count: targets.length }));
+    let ok = 0;
+    let failed = 0;
+    let lastMessage = '';
+    for (const item of targets) {
+      setRuntimeRepairAction(item.id);
+      setRuntimeHealthStatusTargetId(item.id);
+      setRuntimeHealthStatus(t('runtime.repairingItem', { item: runtimeDependencyLabel(item.id, t) }));
+      try {
+        const result = await invokeTauri<RuntimeRepairResult>('cmd_repair_runtime_dependency', {
+          id: item.id,
+        });
+        setRuntimeHealth(result.health);
+        setRuntimeComponents(result.components);
+        lastMessage = result.message;
+        ok += 1;
+      } catch (error) {
+        failed += 1;
+        lastMessage = errorToMessage(error, t);
+        setRuntimeHealthStatusTargetId(item.id);
+        setRuntimeHealthStatus(lastMessage);
+      }
+    }
+    setRuntimeHealthStatusTargetId(null);
+    setRuntimeHealthStatus(
+      failed === 0
+        ? t('runtime.repairAllDone', { count: ok })
+        : `${t('runtime.repairAllPartial', { ok, failed })} ${lastMessage}`,
+    );
+    setRuntimeRepairAction(null);
+    onRefreshModelSettings();
+    refreshDiagnosticsPreview();
+    void refreshRuntimeHealth();
+    void refreshRuntimeComponents();
   };
 
   const handleDownloadRuntimeComponent = async (component: RuntimeComponent) => {
@@ -696,10 +750,12 @@ export function SettingsPage({
       handleExportDiagnostics={handleExportDiagnostics}
       runtimeHealth={runtimeHealth}
       runtimeHealthStatus={runtimeHealthStatus}
+      runtimeHealthStatusTargetId={runtimeHealthStatusTargetId}
       runtimeHealthRefreshing={runtimeHealthRefreshing}
       runtimeRepairAction={runtimeRepairAction}
       refreshRuntimeHealth={refreshRuntimeHealth}
       handleRepairRuntimeDependency={handleRepairRuntimeDependency}
+      handleRepairAllRuntimeDependencies={handleRepairAllRuntimeDependencies}
       runtimeComponents={runtimeComponents}
       runtimeComponentStatus={runtimeComponentStatus}
       runtimeComponentStatusTargetId={runtimeComponentStatusTargetId}

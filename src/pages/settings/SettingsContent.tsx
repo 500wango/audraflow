@@ -60,10 +60,12 @@ interface SettingsContentProps {
   handleExportDiagnostics: () => Promise<void>;
   runtimeHealth: RuntimeHealth | null;
   runtimeHealthStatus: string | null;
+  runtimeHealthStatusTargetId: string | null;
   runtimeHealthRefreshing: boolean;
   runtimeRepairAction: string | null;
   refreshRuntimeHealth: () => Promise<void>;
   handleRepairRuntimeDependency: (item: RuntimeDependency) => Promise<void>;
+  handleRepairAllRuntimeDependencies: () => Promise<void>;
   runtimeComponents: RuntimeComponent[];
   runtimeComponentStatus: string | null;
   /** Component id that the latest status message refers to (e.g. yt-dlp). */
@@ -145,10 +147,12 @@ export function SettingsContent({
   handleExportDiagnostics,
   runtimeHealth,
   runtimeHealthStatus,
+  runtimeHealthStatusTargetId,
   runtimeHealthRefreshing,
   runtimeRepairAction,
   refreshRuntimeHealth,
   handleRepairRuntimeDependency,
+  handleRepairAllRuntimeDependencies,
   runtimeComponents,
   runtimeComponentStatus,
   runtimeComponentStatusTargetId,
@@ -259,15 +263,31 @@ export function SettingsContent({
       <section id="settings-runtime" className="settings-section">
         <div className="settings-section-header">
           <h3>{t('runtime.sectionTitle')}</h3>
-          <button
-            className="btn-secondary btn-sm-inline"
-            disabled={runtimeHealthRefreshing}
-            onClick={() => {
-              void refreshRuntimeHealth();
-            }}
-          >
-            {runtimeHealthRefreshing ? t('runtime.refreshing') : t('runtime.refresh')}
-          </button>
+          <div className="settings-section-actions">
+            <button
+              className="btn-secondary btn-sm-inline"
+              disabled={
+                runtimeHealthRefreshing
+                || runtimeRepairAction !== null
+                || !runtimeHealth
+                || !runtimeHealth.items.some((item) => item.status !== 'ready' && item.repairable)
+              }
+              onClick={() => {
+                void handleRepairAllRuntimeDependencies();
+              }}
+            >
+              {runtimeRepairAction !== null ? t('runtime.repairing') : t('runtime.repairAll')}
+            </button>
+            <button
+              className="btn-secondary btn-sm-inline"
+              disabled={runtimeHealthRefreshing || runtimeRepairAction !== null}
+              onClick={() => {
+                void refreshRuntimeHealth();
+              }}
+            >
+              {runtimeHealthRefreshing ? t('runtime.refreshing') : t('runtime.refresh')}
+            </button>
+          </div>
         </div>
         {runtimeHealth ? (
           <>
@@ -279,9 +299,20 @@ export function SettingsContent({
               </span>
               <span>{t('runtime.warningSummary', { count: runtimeHealth.warningCount })}</span>
             </div>
+            {/* Show live component download progress while a health-row repair is downloading. */}
+            {runtimeRepairAction && runtimeComponentProgress ? (
+              <div className="runtime-component-progress-text">
+                <span>{runtimeComponentProgress.message}</span>
+                <span>
+                  {formatFileSize(runtimeComponentProgress.downloadedBytes)} /{' '}
+                  {formatFileSize(runtimeComponentProgress.totalBytes)}
+                </span>
+              </div>
+            ) : null}
             <div className="runtime-health-list">
               {runtimeHealth.items.map((item) => {
                 const label = runtimeDependencyLabel(item.id, t);
+                const isRepairingThis = runtimeRepairAction === item.id;
                 return (
                   <div key={item.id} className="runtime-health-row">
                     <div className="runtime-health-main">
@@ -296,6 +327,15 @@ export function SettingsContent({
                       {item.path ? <p className="setting-meta">{t('runtime.path', { path: item.path })}</p> : null}
                       {item.version ? <p className="setting-meta">{t('runtime.version', { version: item.version })}</p> : null}
                       {item.detail ? <p className="setting-meta">{t('runtime.detail', { detail: item.detail })}</p> : null}
+                      {isRepairingThis && runtimeHealthStatus ? (
+                        <p className="status-msg model-status-msg">{runtimeHealthStatus}</p>
+                      ) : null}
+                      {!isRepairingThis
+                        && runtimeRepairAction === null
+                        && runtimeHealthStatus
+                        && runtimeHealthStatusTargetId === item.id ? (
+                        <p className="status-msg model-status-msg">{runtimeHealthStatus}</p>
+                      ) : null}
                     </div>
                     {item.status !== 'ready' ? (
                       <div className="runtime-health-actions">
@@ -308,7 +348,7 @@ export function SettingsContent({
                               void handleRepairRuntimeDependency(item);
                             }}
                           >
-                            {runtimeRepairAction === item.id ? t('runtime.repairing') : t('runtime.repair')}
+                            {isRepairingThis ? t('runtime.repairing') : t('runtime.repair')}
                           </button>
                         ) : null}
                       </div>
@@ -323,7 +363,7 @@ export function SettingsContent({
             {runtimeHealthStatus || t('runtime.loading')}
           </p>
         )}
-        {runtimeHealthStatus && runtimeHealth ? (
+        {runtimeHealthStatus && runtimeHealth && runtimeRepairAction === null && !runtimeHealthStatusTargetId ? (
           <p className="status-msg model-status-msg">{runtimeHealthStatus}</p>
         ) : null}
         <div className="runtime-component-panel">
