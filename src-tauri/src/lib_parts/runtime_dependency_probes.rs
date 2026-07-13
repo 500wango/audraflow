@@ -98,8 +98,39 @@ pub(crate) async fn probe_runtime_command(
     timeout_secs: u64,
 ) -> RuntimeDependencyDto {
     let display_path = display_path.unwrap_or_else(|| command_display_path(&program));
+    // Relative names without a directory only work if they are on PATH. Prefer an
+    // absolute path when the binary exists, so probes report accurate missing vs
+    // broken states after managed-component installs.
+    if program.components().count() == 1 && !program.exists() {
+        return RuntimeDependencyDto {
+            id: id.into(),
+            status: "missing".into(),
+            kind: kind.into(),
+            path: None,
+            version: None,
+            detail: Some(format!(
+                "{} was not found. Install it from Runtime Components, or place it on PATH.",
+                program.display()
+            )),
+            repairable: runtime_dependency_repairable(id),
+        };
+    }
+    if program.is_absolute() && !program.is_file() {
+        return RuntimeDependencyDto {
+            id: id.into(),
+            status: "missing".into(),
+            kind: kind.into(),
+            path: Some(display_path),
+            version: None,
+            detail: Some(format!("Binary not found at {}", program.display())),
+            repairable: runtime_dependency_repairable(id),
+        };
+    }
+
+    unblock_windows_file(&program);
     let mut command = tokio::process::Command::new(&program);
     command.args(args);
+    apply_no_window_tokio(&mut command);
 
     match tokio::time::timeout(Duration::from_secs(timeout_secs), command.output()).await {
         Ok(Ok(output)) if output.status.success() => RuntimeDependencyDto {
@@ -132,9 +163,12 @@ pub(crate) async fn probe_runtime_command(
             id: id.into(),
             status: "missing".into(),
             kind: kind.into(),
-            path: None,
+            path: Some(display_path),
             version: None,
-            detail: Some(error.to_string()),
+            detail: Some(format!(
+                "Failed to start {}: {error}",
+                program.display()
+            )),
             repairable: runtime_dependency_repairable(id),
         },
         Err(_) => RuntimeDependencyDto {
@@ -153,8 +187,34 @@ pub(crate) async fn probe_funasr_cli(app_handle: &tauri::AppHandle) -> RuntimeDe
     let id = "funasrCli";
     let program = funasr_cli_command_for_app(app_handle);
     let display_path = command_display_path(&program);
+    if program.components().count() == 1 && !program.exists() {
+        return RuntimeDependencyDto {
+            id: id.into(),
+            status: "missing".into(),
+            kind: "experimental".into(),
+            path: None,
+            version: None,
+            detail: Some(
+                "Fun-ASR CLI was not found. Install it from Runtime Components.".into(),
+            ),
+            repairable: runtime_dependency_repairable(id),
+        };
+    }
+    if program.is_absolute() && !program.is_file() {
+        return RuntimeDependencyDto {
+            id: id.into(),
+            status: "missing".into(),
+            kind: "experimental".into(),
+            path: Some(display_path),
+            version: None,
+            detail: Some(format!("Binary not found at {}", program.display())),
+            repairable: runtime_dependency_repairable(id),
+        };
+    }
+    unblock_windows_file(&program);
     let mut command = tokio::process::Command::new(&program);
     command.arg("--help");
+    apply_no_window_tokio(&mut command);
 
     match tokio::time::timeout(Duration::from_secs(5), command.output()).await {
         Ok(Ok(output)) if output.status.success() || output_looks_like_funasr_usage(&output) => {
@@ -207,12 +267,14 @@ pub(crate) async fn probe_funasr_cli(app_handle: &tauri::AppHandle) -> RuntimeDe
 }
 
 pub(crate) async fn funasr_cli_probe_succeeds(program: &Path) -> bool {
-    let Ok(result) = tokio::time::timeout(
-        Duration::from_secs(5),
-        tokio::process::Command::new(program).arg("--help").output(),
-    )
-    .await
-    else {
+    if !program.is_file() {
+        return false;
+    }
+    unblock_windows_file(program);
+    let mut command = tokio::process::Command::new(program);
+    command.arg("--help");
+    apply_no_window_tokio(&mut command);
+    let Ok(result) = tokio::time::timeout(Duration::from_secs(5), command.output()).await else {
         return false;
     };
     let Ok(output) = result else {

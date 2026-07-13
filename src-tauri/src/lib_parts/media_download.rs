@@ -200,7 +200,9 @@ pub(crate) async fn trim_media_start_if_needed(
         skip_arg.replace('.', "_")
     ));
 
-    let output = tokio::process::Command::new(ffmpeg_command_for_app(app_handle))
+    let mut ffmpeg = tokio::process::Command::new(ffmpeg_command_for_app(app_handle));
+    apply_no_window_tokio(&mut ffmpeg);
+    let output = ffmpeg
         .arg("-y")
         .arg("-hide_banner")
         .arg("-loglevel")
@@ -298,6 +300,7 @@ pub(crate) async fn download_platform_media(
     let skip_arg = format_seconds_arg(skip_start_seconds);
     let output_template = cache_dir.join("media.%(ext)s");
     let mut command = tokio::process::Command::new(yt_dlp_command_for_app(app_handle));
+    apply_no_window_tokio(&mut command);
     apply_yt_dlp_youtube_compat(&mut command);
     command
         .arg("--no-playlist")
@@ -630,6 +633,7 @@ pub(crate) async fn create_platform_preview(
     let section = format!("*0-{}", format_seconds_arg(preview_seconds));
     let output = tokio::time::timeout(Duration::from_secs(URL_PREVIEW_TIMEOUT_SECS), {
         let mut command = tokio::process::Command::new(yt_dlp_command_for_app(app_handle));
+        apply_no_window_tokio(&mut command);
         apply_yt_dlp_youtube_compat(&mut command);
         command
             .arg("--no-playlist")
@@ -670,9 +674,11 @@ pub(crate) async fn create_direct_preview(
     preview_seconds: f64,
 ) -> Result<PathBuf, String> {
     let output_path = cache_dir.join("preview.m4a");
+    let mut ffmpeg = tokio::process::Command::new(ffmpeg_command_for_app(app_handle));
+    apply_no_window_tokio(&mut ffmpeg);
     let output = tokio::time::timeout(
         Duration::from_secs(URL_PREVIEW_TIMEOUT_SECS),
-        tokio::process::Command::new(ffmpeg_command_for_app(app_handle))
+        ffmpeg
             .arg("-y")
             .arg("-hide_banner")
             .arg("-loglevel")

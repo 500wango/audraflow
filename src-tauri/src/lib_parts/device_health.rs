@@ -1,12 +1,12 @@
 use crate::*;
 pub(crate) fn detect_nvidia_device() -> Option<(String, f64, String, String)> {
-    let output = std::process::Command::new("nvidia-smi")
-        .args([
-            "--query-gpu=name,memory.total,cuda_version,driver_version",
-            "--format=csv,noheader,nounits",
-        ])
-        .output()
-        .ok()?;
+    let mut command = std::process::Command::new("nvidia-smi");
+    command.args([
+        "--query-gpu=name,memory.total,cuda_version,driver_version",
+        "--format=csv,noheader,nounits",
+    ]);
+    apply_no_window_std(&mut command);
+    let output = command.output().ok()?;
     if !output.status.success() {
         return None;
     }

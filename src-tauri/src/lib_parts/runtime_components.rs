@@ -318,23 +318,43 @@ pub(crate) fn runtime_component_status(
     let component_dir = runtime_component_dir_for_app(app_handle, spec.id)
         .unwrap_or_else(|_| runtime_component_dir(spec.id));
     let bin_dir = component_dir.join("bin");
-    let missing = spec
-        .required_files
-        .iter()
-        .filter(|file| !bin_dir.join(file).is_file())
-        .copied()
-        .collect::<Vec<_>>();
+    let mut missing = Vec::new();
+    let mut too_small = Vec::new();
+    for file in spec.required_files {
+        let path = bin_dir.join(file);
+        if !path.is_file() {
+            missing.push(*file);
+            continue;
+        }
+        let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        if size < 64 {
+            too_small.push(format!("{file} ({size} B)"));
+        }
+    }
     let installed_size_bytes = directory_size_bytes(&component_dir).unwrap_or(0);
     let download_url = runtime_component_download_url(spec);
-    let (status, detail) = if missing.is_empty() {
+    let (status, detail) = if missing.is_empty() && too_small.is_empty() {
         (
             "ready".to_string(),
             Some(format!("Installed in {}", component_dir.display())),
         )
+    } else if !missing.is_empty() {
+        (
+            "missing".to_string(),
+            Some(format!(
+                "Missing file(s) under {}: {}",
+                bin_dir.display(),
+                missing.join(", ")
+            )),
+        )
     } else {
         (
             "missing".to_string(),
-            Some(format!("Missing file(s): {}", missing.join(", "))),
+            Some(format!(
+                "Installed files look incomplete under {}: {}",
+                bin_dir.display(),
+                too_small.join(", ")
+            )),
         )
     };
 
@@ -694,20 +714,46 @@ pub(crate) async fn install_runtime_component(
             emit_runtime_component_progress(app_handle, spec.id, 0, 0, format!("Extraction failed: {e}"));
             e
         })?;
-    emit_runtime_component_progress(app_handle, spec.id, 0, 0, format!("Verifying files in {}", staging_bin_dir.display()));
+    emit_runtime_component_progress(
+        app_handle,
+        spec.id,
+        0,
+        0,
+        format!("Verifying files in {}", staging_bin_dir.display()),
+    );
     verify_component_files(spec, &staging_bin_dir)
         .map_err(|e| {
             emit_runtime_component_progress(app_handle, spec.id, 0, 0, format!("Verification failed: {e}"));
             e
         })?;
     for file_name in spec.required_files {
-        mark_executable(&staging_bin_dir.join(file_name))?;
+        let path = staging_bin_dir.join(file_name);
+        unblock_windows_file(&path);
+        mark_executable(&path)?;
     }
 
-    let _ = tokio::fs::remove_dir_all(&component_dir).await;
-    tokio::fs::rename(&staging_dir, &component_dir)
+    // Smoke-test CLI components before promoting staging → live so UI does not
+    // report "Installed" while the binary still cannot start.
+    emit_runtime_component_progress(app_handle, spec.id, 0, 0, "Smoke-testing installed tools...");
+    smoke_test_installed_component(spec, &staging_bin_dir)
         .await
-        .map_err(|e| format!("Failed to activate runtime component: {e}"))?;
+        .map_err(|e| {
+            emit_runtime_component_progress(app_handle, spec.id, 0, 0, format!("Smoke test failed: {e}"));
+            e
+        })?;
+
+    activate_component_directory(&staging_dir, &component_dir)
+        .await
+        .map_err(|e| {
+            emit_runtime_component_progress(
+                app_handle,
+                spec.id,
+                0,
+                0,
+                format!("Activation failed: {e}"),
+            );
+            e
+        })?;
     let _ = tokio::fs::remove_file(&download_path).await;
     emit_runtime_component_progress(
         app_handle,
@@ -717,10 +763,129 @@ pub(crate) async fn install_runtime_component(
         "Installed",
     );
 
+    // Re-check live path so status cannot report missing after a partial move.
+    verify_component_files(spec, &component_dir.join("bin")).map_err(|e| {
+        format!(
+            "{} appeared to install, but verification of the live path failed: {e}",
+            spec.id
+        )
+    })?;
+
     Ok(format!(
         "{} runtime component installed in {}.",
         spec.id,
         component_dir.display()
+    ))
+}
+
+/// Promote a staged component tree into the live component directory.
+/// Windows antivirus can hold locks that make `rename` fail; fall back to copy.
+pub(crate) async fn activate_component_directory(
+    staging_dir: &Path,
+    component_dir: &Path,
+) -> Result<(), String> {
+    let _ = tokio::fs::remove_dir_all(component_dir).await;
+    match tokio::fs::rename(staging_dir, component_dir).await {
+        Ok(()) => Ok(()),
+        Err(rename_err) => {
+            log::warn!(
+                "rename {} -> {} failed ({rename_err}); falling back to copy",
+                staging_dir.display(),
+                component_dir.display()
+            );
+            copy_dir_recursive(staging_dir, component_dir)?;
+            let _ = tokio::fs::remove_dir_all(staging_dir).await;
+            Ok(())
+        }
+    }
+}
+
+pub(crate) fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(dst)
+        .map_err(|e| format!("Failed to create {}: {e}", dst.display()))?;
+    for entry in std::fs::read_dir(src)
+        .map_err(|e| format!("Failed to read {}: {e}", src.display()))?
+    {
+        let entry = entry.map_err(|e| format!("Failed to read directory entry: {e}"))?;
+        let file_type = entry
+            .file_type()
+            .map_err(|e| format!("Failed to inspect {}: {e}", entry.path().display()))?;
+        let target = dst.join(entry.file_name());
+        if file_type.is_dir() {
+            copy_dir_recursive(&entry.path(), &target)?;
+        } else {
+            std::fs::copy(entry.path(), &target).map_err(|e| {
+                format!(
+                    "Failed to copy {} -> {}: {e}",
+                    entry.path().display(),
+                    target.display()
+                )
+            })?;
+            unblock_windows_file(&target);
+        }
+    }
+    Ok(())
+}
+
+/// Run a quick `--version`/`--help` check for CLI components after extraction.
+pub(crate) async fn smoke_test_installed_component(
+    spec: &RuntimeComponentSpec,
+    bin_dir: &Path,
+) -> Result<(), String> {
+    let (binary_name, args): (&str, &[&str]) = match spec.id {
+        "yt-dlp" => (yt_dlp_binary_name(), &["--version"]),
+        "funasr" => (funasr_cli_binary_name(), &["--help"]),
+        "ffmpeg" => (tool_binary_name("ffmpeg"), &["-version"]),
+        "whisper" => (whisper_cli_binary_name(), &["--help"]),
+        _ => return Ok(()),
+    };
+    let program = bin_dir.join(binary_name);
+    if !program.is_file() {
+        return Err(format!("Smoke test binary missing: {}", program.display()));
+    }
+    let size = std::fs::metadata(&program)
+        .map(|m| m.len())
+        .unwrap_or(0);
+    if size < 1024 {
+        return Err(format!(
+            "Smoke test binary is too small ({} bytes): {}",
+            size,
+            program.display()
+        ));
+    }
+    unblock_windows_file(&program);
+
+    let mut command = tokio::process::Command::new(&program);
+    command.args(args);
+    apply_no_window_tokio(&mut command);
+    let output = tokio::time::timeout(Duration::from_secs(10), command.output())
+        .await
+        .map_err(|_| {
+            format!(
+                "Smoke test timed out for {}. Windows may be blocking the downloaded executable.",
+                program.display()
+            )
+        })?
+        .map_err(|e| {
+            format!(
+                "Failed to start smoke test for {}: {e}. If this is a fresh download, check antivirus quarantine or install the VC++ runtime.",
+                program.display()
+            )
+        })?;
+
+    let ok = output.status.success()
+        || (spec.id == "funasr" && output_looks_like_funasr_usage(&output));
+    if ok {
+        return Ok(());
+    }
+
+    Err(format!(
+        "Installed {} but it exited with {}. {}",
+        program.display(),
+        output.status,
+        short_output(&output.stderr)
+            .or_else(|| short_output(&output.stdout))
+            .unwrap_or_else(|| "No output.".into())
     ))
 }
 
@@ -830,15 +995,14 @@ pub(crate) async fn run_component_installer(
         powershell_single_quote(path.to_string_lossy().as_ref()),
         quoted_args
     );
-    tokio::time::timeout(
-        timeout,
-        tokio::process::Command::new("powershell.exe")
-            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &script])
-            .output(),
-    )
-    .await
-    .map_err(|_| format!("{label} installer timed out."))?
-    .map_err(|e| format!("Failed to start {label} installer: {e}"))
+    let mut command = tokio::process::Command::new("powershell.exe");
+    command.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &script]);
+    // CREATE_NO_WINDOW hides the PowerShell host; UAC for -Verb RunAs still shows.
+    apply_no_window_tokio(&mut command);
+    tokio::time::timeout(timeout, command.output())
+        .await
+        .map_err(|_| format!("{label} installer timed out."))?
+        .map_err(|e| format!("Failed to start {label} installer: {e}"))
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -1145,19 +1309,26 @@ pub(crate) fn archive_entry_basename(name: &str) -> Option<String> {
 }
 
 pub(crate) fn verify_component_files(spec: &RuntimeComponentSpec, bin_dir: &Path) -> Result<(), String> {
-    let missing = spec
-        .required_files
-        .iter()
-        .filter(|file| !bin_dir.join(file).is_file())
-        .copied()
-        .collect::<Vec<_>>();
-    if missing.is_empty() {
+    let mut problems = Vec::new();
+    for file in spec.required_files {
+        let path = bin_dir.join(file);
+        if !path.is_file() {
+            problems.push(format!("missing {file}"));
+            continue;
+        }
+        let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        if size < 64 {
+            problems.push(format!("{file} is only {size} bytes"));
+        }
+    }
+    if problems.is_empty() {
         Ok(())
     } else {
         Err(format!(
-            "Runtime component {} is missing required file(s): {}",
+            "Runtime component {} failed verification in {}: {}",
             spec.id,
-            missing.join(", ")
+            bin_dir.display(),
+            problems.join("; ")
         ))
     }
 }

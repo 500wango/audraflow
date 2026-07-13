@@ -31,15 +31,13 @@ pub(crate) async fn run_runtime_invocation_with_timeout(
     timeout: Duration,
     label: &str,
 ) -> Result<std::process::Output, String> {
-    tokio::time::timeout(
-        timeout,
-        tokio::process::Command::new(&invocation.program)
-            .args(args)
-            .output(),
-    )
-    .await
-    .map_err(|_| format!("{label} timed out after {} seconds.", timeout.as_secs()))?
-    .map_err(|e| format!("Failed to start {label} at {}: {e}", invocation.display))
+    let mut command = tokio::process::Command::new(&invocation.program);
+    command.args(args);
+    apply_no_window_tokio(&mut command);
+    tokio::time::timeout(timeout, command.output())
+        .await
+        .map_err(|_| format!("{label} timed out after {} seconds.", timeout.as_secs()))?
+        .map_err(|e| format!("Failed to start {label} at {}: {e}", invocation.display))
 }
 
 pub(crate) fn preflight_url_import_dependencies(
@@ -252,6 +250,7 @@ pub(crate) fn run_runtime_probe_with_timeout(
     if let Some(parent) = program.parent().filter(|path| !path.as_os_str().is_empty()) {
         command.current_dir(parent);
     }
+    apply_no_window_std(&mut command);
     let mut child = command
         .args(args)
         .stdout(std::process::Stdio::piped())

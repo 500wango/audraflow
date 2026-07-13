@@ -158,7 +158,9 @@ pub(crate) fn job_summary_to_dto(
 }
 
 pub(crate) fn probe_media_duration_seconds(path: &Path) -> Option<f64> {
-    let output = std::process::Command::new(ffprobe_command())
+    let mut ffprobe = std::process::Command::new(ffprobe_command());
+    apply_no_window_std(&mut ffprobe);
+    let output = ffprobe
         .args([
             "-v",
             "error",
@@ -341,6 +343,39 @@ pub(crate) fn find_command_in_path(name: &str) -> Option<PathBuf> {
         }
     }
     None
+}
+
+/// Prevent console windows from flashing when a GUI app spawns CLI tools on Windows.
+pub(crate) fn apply_no_window_std(command: &mut std::process::Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    let _ = command;
+}
+
+/// Prevent console windows from flashing when a GUI app spawns CLI tools on Windows.
+pub(crate) fn apply_no_window_tokio(command: &mut tokio::process::Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    let _ = command;
+}
+
+/// Clear Windows "downloaded from internet" ADS so freshly installed tools can run.
+pub(crate) fn unblock_windows_file(path: &Path) {
+    #[cfg(windows)]
+    {
+        // Zone.Identifier alternate data stream is what SmartScreen/MOTW uses.
+        let ads = format!("{}:Zone.Identifier", path.display());
+        let _ = std::fs::remove_file(ads);
+    }
+    let _ = path;
 }
 
 pub(crate) fn find_bundled_command(name: &str) -> Option<PathBuf> {
