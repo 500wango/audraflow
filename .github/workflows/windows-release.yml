@@ -164,7 +164,9 @@ jobs:
       - name: Build Windows installers
         env:
           AUDRAFLOW_SKIP_BEFORE_BUILD: "1"
-          AUDRAFLOW_GITHUB_TOKEN: ${{ secrets.AUDRAFLOW_RELEASE_READ_TOKEN }}
+          # Public release metadata only — do NOT pass AUDRAFLOW_GITHUB_TOKEN here
+          # (it must not be compiled into the binary via option_env! leftovers).
+          AUDRAFLOW_BUILD_REPO: ${{ github.repository }}
           AUDRAFLOW_COMPONENT_RELEASE_TAG: ${{ steps.component-tag.outputs.tag }}
           AUDRAFLOW_COMPONENT_BASE_URL: ${{ format('https://github.com/{0}/releases/download/{1}', github.repository, steps.component-tag.outputs.tag) }}
         run: npm run desktop:build:windows
